@@ -4,6 +4,9 @@ import { withRetry } from "../retry"
 import { anthropicDefaultModelId, AnthropicModelId, anthropicModels, ApiHandlerOptions, ModelInfo } from "@shared/api"
 import { ApiHandler } from "../index"
 import { ApiStream } from "../transform/stream"
+import fs from "fs/promises"
+import * as path from "path"
+import { Logger } from "../../services/logging/Logger"
 
 export class AnthropicHandler implements ApiHandler {
 	private options: ApiHandlerOptions
@@ -17,8 +20,51 @@ export class AnthropicHandler implements ApiHandler {
 		})
 	}
 
+	/**
+	 * Writes the system prompt and messages to a file for debugging purposes
+	 */
+	private async writePromptToFile(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]) {
+		try {
+			// Create a logs directory if it doesn't exist
+			const logsDir = path.join(process.cwd(), 'logs')
+			try {
+				await fs.mkdir(logsDir, { recursive: true })
+			} catch (err) {
+				// Directory might already exist, that's fine
+			}
+			
+			// Create a timestamp for the filename
+			const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+			const filePath = path.join(logsDir, `anthropic-prompt-${timestamp}.json`)
+			
+			// Format the data
+			const data = {
+				timestamp: new Date().toISOString(),
+				systemPrompt,
+				messages: messages.map(msg => ({
+					role: msg.role,
+					content: msg.content
+				}))
+			}
+			
+			// Write to file
+			await fs.writeFile(filePath, JSON.stringify(data, null, 2))
+			
+			Logger.info(`Anthropic prompt written to: ${filePath}`)
+		} catch (error) {
+			Logger.error(`Failed to write Anthropic prompt to file: ${error instanceof Error ? error.message : String(error)}`)
+		}
+	}
+
 	@withRetry()
 	async *createMessage(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]): ApiStream {
+		// Write the prompt to a file for debugging
+		await this.writePromptToFile(systemPrompt, messages)
+		
+		// Also log to console for easier testing
+		console.log("Anthropic Prompt Logging:")
+		console.log("System Prompt:", systemPrompt)
+		console.log("Messages:", JSON.stringify(messages, null, 2))
 		const model = this.getModel()
 		let stream: AnthropicStream<Anthropic.RawMessageStreamEvent>
 		const modelId = model.id

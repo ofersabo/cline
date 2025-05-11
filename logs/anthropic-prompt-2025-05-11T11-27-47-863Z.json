@@ -1,0 +1,10 @@
+{
+  "timestamp": "2025-05-11T11:27:47.863Z",
+  "systemPrompt": "You are a helpful assistant.",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello, how are you?"
+    }
+  ]
+}
