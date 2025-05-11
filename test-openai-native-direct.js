@@ -1,4 +1,4 @@
-// Simple standalone test script for Anthropic prompt logging
+// Simple standalone test script for OpenAI Native prompt logging
 
 const fs = require('fs').promises;
 const path = require('path');
@@ -29,6 +29,16 @@ function getSubdirectoryNameFromMessages(messages) {
     || 'unknown-query';
 }
 
+// Convert Anthropic-style messages to OpenAI format
+function convertToOpenAiMessages(messages) {
+  return messages.map(msg => {
+    return {
+      role: msg.role === 'assistant' ? 'assistant' : 'user',
+      content: msg.content
+    };
+  });
+}
+
 // Create logs directory if it doesn't exist
 async function ensureLogsDirectory(subdirName) {
   const baseLogsDir = '/Users/ofersabo/code/cline/logs';
@@ -49,7 +59,7 @@ async function ensureLogsDirectory(subdirName) {
 }
 
 // Write prompt to file
-async function writePromptToFile(systemPrompt, messages) {
+async function writePromptToFile(systemPrompt, messages, modelId) {
   try {
     // Create a subdirectory based on the first message content
     const subdirName = getSubdirectoryNameFromMessages(messages);
@@ -57,42 +67,48 @@ async function writePromptToFile(systemPrompt, messages) {
     
     // Create a timestamp for the filename
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filePath = path.join(logsDir, `anthropic-prompt-${timestamp}.json`);
+    const filePath = path.join(logsDir, `openai-native-prompt-${timestamp}.json`);
     
     // Format the data
     const data = {
       timestamp: new Date().toISOString(),
+      model: modelId,
       systemPrompt,
       messages: messages.map(msg => ({
         role: msg.role,
         content: msg.content
-      }))
+      })),
+      openaiMessages: [
+        { role: "system", content: systemPrompt }, 
+        ...convertToOpenAiMessages(messages)
+      ]
     };
     
     // Write to file
     await fs.writeFile(filePath, JSON.stringify(data, null, 2));
     
-    console.log(`Anthropic prompt written to: ${filePath}`);
+    console.log(`OpenAI Native prompt written to: ${filePath}`);
     return filePath;
   } catch (error) {
-    console.error(`Failed to write Anthropic prompt to file: ${error.message}`);
+    console.error(`Failed to write OpenAI Native prompt to file: ${error.message}`);
     throw error;
   }
 }
 
-async function testAnthropicPromptLogging() {
-  console.log('Testing Anthropic prompt logging...');
+async function testOpenAiNativePromptLogging() {
+  console.log('Testing OpenAI Native prompt logging...');
   
   // Test case 1: Simple message
   console.log('\nTest Case 1: Simple message');
   const systemPrompt1 = 'You are a helpful assistant.';
   const messages1 = [
-    { role: 'user', content: 'Hello, how are you?' }
+    { role: 'user', content: 'Write a function to calculate Fibonacci numbers' }
   ];
+  const modelId = 'gpt-4.1';
   
   try {
     // Write the prompt to a file
-    const filePath1 = await writePromptToFile(systemPrompt1, messages1);
+    const filePath1 = await writePromptToFile(systemPrompt1, messages1, modelId);
     
     // Read the file back to verify
     const content1 = await fs.readFile(filePath1, 'utf8');
@@ -105,11 +121,11 @@ async function testAnthropicPromptLogging() {
     console.log('\nTest Case 2: Message with task tag');
     const systemPrompt2 = 'You are a helpful assistant.';
     const messages2 = [
-      { role: 'user', content: '<task>\nfix the code\n</task>' }
+      { role: 'user', content: '<task>\nImplement a React component\n</task>' }
     ];
     
     // Write the prompt to a file
-    const filePath2 = await writePromptToFile(systemPrompt2, messages2);
+    const filePath2 = await writePromptToFile(systemPrompt2, messages2, modelId);
     
     // Read the file back to verify
     const content2 = await fs.readFile(filePath2, 'utf8');
@@ -125,4 +141,4 @@ async function testAnthropicPromptLogging() {
 }
 
 // Run the test
-testAnthropicPromptLogging();
+testOpenAiNativePromptLogging();

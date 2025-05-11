@@ -20,17 +20,66 @@ export class AnthropicHandler implements ApiHandler {
 		})
 	}
 
+
+	/**
+	 * Extracts a clean directory name from the first message content
+	 */
+	private getSubdirectoryNameFromMessages(messages: Anthropic.Messages.MessageParam[]): string {
+		if (messages.length === 0) {
+			return 'unknown-query'
+		}
+		
+		const firstMessage = messages[0]
+		let content = ''
+		
+		if (typeof firstMessage.content === 'string') {
+			content = firstMessage.content
+		} else if (Array.isArray(firstMessage.content)) {
+			// Find the first text block
+			const textBlock = firstMessage.content.find(block => block.type === 'text')
+			if (textBlock && 'text' in textBlock) {
+				content = textBlock.text
+			}
+		}
+		
+		// Extract content between <task> tags if present
+		const taskMatch = content.match(/<task>\s*([\s\S]*?)\s*<\/task>/)
+		if (taskMatch && taskMatch[1]) {
+			content = taskMatch[1]
+		}
+		
+		// Clean up the content to make a valid directory name
+		return content
+			.trim()
+			.toLowerCase()
+			.replace(/\s+/g, '-') // Replace spaces with hyphens
+			.replace(/[^a-z0-9-]/g, '') // Remove special characters
+			.replace(/-+/g, '-') // Replace multiple hyphens with a single one
+			.substring(0, 50) // Limit length
+			|| 'unknown-query'
+	}
+
 	/**
 	 * Writes the system prompt and messages to a file for debugging purposes
 	 */
 	private async writePromptToFile(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]) {
 		try {
 			// Create a logs directory if it doesn't exist
-			const logsDir = path.join(process.cwd(), 'logs')
+			const baseLogsDir = '/Users/ofersabo/code/cline/logs'
+			try {
+				await fs.mkdir(baseLogsDir, { recursive: true })
+			} catch (err) {
+				// Directory might already exist, that's fine
+			}
+			
+			// Create a subdirectory based on the first message content
+			const subdirName = this.getSubdirectoryNameFromMessages(messages)
+			const logsDir = path.join(baseLogsDir, subdirName)
+			
 			try {
 				await fs.mkdir(logsDir, { recursive: true })
 			} catch (err) {
-				// Directory might already exist, that's fine
+				// Subdirectory might already exist, that's fine
 			}
 			
 			// Create a timestamp for the filename
