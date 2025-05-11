@@ -8,7 +8,7 @@ import {
 	VSCodeRadioGroup,
 	VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react"
-import { Fragment, memo, useCallback, useEffect, useMemo, useState } from "react"
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ThinkingBudgetSlider from "./ThinkingBudgetSlider"
 import { useEvent, useInterval } from "react-use"
 import styled from "styled-components"
@@ -55,17 +55,58 @@ import {
 import { ExtensionMessage } from "@shared/ExtensionMessage"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { vscode } from "@/utils/vscode"
+import { ModelsServiceClient } from "@/services/grpc-client"
 import { getAsVar, VSC_DESCRIPTION_FOREGROUND } from "@/utils/vscStyles"
 import VSCodeButtonLink from "@/components/common/VSCodeButtonLink"
 import OpenRouterModelPicker, { ModelDescriptionMarkdown, OPENROUTER_MODEL_PICKER_Z_INDEX } from "./OpenRouterModelPicker"
 import { ClineAccountInfoCard } from "./ClineAccountInfoCard"
 import RequestyModelPicker from "./RequestyModelPicker"
+import { useOpenRouterKeyInfo } from "../ui/hooks/useOpenRouterKeyInfo"
 
 interface ApiOptionsProps {
 	showModelOptions: boolean
 	apiErrorMessage?: string
 	modelIdErrorMessage?: string
 	isPopup?: boolean
+	saveImmediately?: boolean // Add prop to control immediate saving
+}
+
+const OpenRouterBalanceDisplay = ({ apiKey }: { apiKey: string }) => {
+	const { data: keyInfo, isLoading, error } = useOpenRouterKeyInfo(apiKey)
+
+	if (isLoading) {
+		return <span style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}>Loading...</span>
+	}
+
+	if (error || !keyInfo || keyInfo.limit === null) {
+		// Don't show anything if there's an error, no info, or no limit set
+		return null
+	}
+
+	// Calculate remaining balance
+	const remainingBalance = keyInfo.limit - keyInfo.usage
+	const formattedBalance = remainingBalance.toLocaleString("en-US", {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 4,
+	})
+
+	return (
+		<VSCodeLink
+			href="https://openrouter.ai/settings/keys"
+			title={`Remaining balance: ${formattedBalance}\nLimit: ${keyInfo.limit.toLocaleString("en-US", { style: "currency", currency: "USD" })}\nUsage: ${keyInfo.usage.toLocaleString("en-US", { style: "currency", currency: "USD" })}`}
+			style={{
+				fontSize: "12px",
+				color: "var(--vscode-foreground)",
+				textDecoration: "none",
+				fontWeight: 500,
+				paddingLeft: 4,
+				cursor: "pointer",
+			}}>
+			Balance: {formattedBalance}
+		</VSCodeLink>
+	)
 }
 
 // This is necessary to ensure dropdown opens downward, important for when this is used in popup
@@ -92,8 +133,16 @@ declare module "vscode" {
 	}
 }
 
-const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, isPopup }: ApiOptionsProps) => {
-	const { apiConfiguration, setApiConfiguration, uriScheme } = useExtensionState()
+const ApiOptions = ({
+	showModelOptions,
+	apiErrorMessage,
+	modelIdErrorMessage,
+	isPopup,
+	saveImmediately = false, // Default to false
+}: ApiOptionsProps) => {
+	// Use full context state for immediate save payload
+	const extensionState = useExtensionState()
+	const { apiConfiguration, setApiConfiguration, uriScheme } = extensionState
 	const [ollamaModels, setOllamaModels] = useState<string[]>([])
 	const [lmStudioModels, setLmStudioModels] = useState<string[]>([])
 	const [vsCodeLmModels, setVsCodeLmModels] = useState<vscodemodels.LanguageModelChatSelector[]>([])
@@ -115,14 +164,15 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 			[field]: newValue,
 		})
 
-		// If the field is the provider, save it immediately
-		// Necessary for favorite model selection to work without undoing provider changes
-		if (field === "apiProvider") {
+		// If the field is the provider AND saveImmediately is true, save it immediately using the full context state
+		if (saveImmediately && field === "apiProvider") {
+			// Use apiConfiguration from the full extensionState context to send the most complete data
+			const currentFullApiConfig = extensionState.apiConfiguration
 			vscode.postMessage({
 				type: "apiConfiguration",
 				apiConfiguration: {
-					...apiConfiguration,
-					apiProvider: newValue,
+					...currentFullApiConfig, // Send the most complete config available
+					apiProvider: newValue, // Override with the new provider
 				},
 			})
 		}
@@ -133,19 +183,41 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 	}, [apiConfiguration])
 
 	// Poll ollama/lmstudio models
-	const requestLocalModels = useCallback(() => {
+	const requestLocalModels = useCallback(async () => {
 		if (selectedProvider === "ollama") {
-			vscode.postMessage({
-				type: "requestOllamaModels",
-				text: apiConfiguration?.ollamaBaseUrl,
-			})
+			try {
+				const response = await ModelsServiceClient.getOllamaModels({
+					value: apiConfiguration?.ollamaBaseUrl || "",
+				})
+				if (response && response.values) {
+					setOllamaModels(response.values)
+				}
+			} catch (error) {
+				console.error("Failed to fetch Ollama models:", error)
+				setOllamaModels([])
+			}
 		} else if (selectedProvider === "lmstudio") {
-			vscode.postMessage({
-				type: "requestLmStudioModels",
-				text: apiConfiguration?.lmStudioBaseUrl,
-			})
+			try {
+				const response = await ModelsServiceClient.getLmStudioModels({
+					value: apiConfiguration?.lmStudioBaseUrl || "",
+				})
+				if (response && response.values) {
+					setLmStudioModels(response.values)
+				}
+			} catch (error) {
+				console.error("Failed to fetch LM Studio models:", error)
+				setLmStudioModels([])
+			}
 		} else if (selectedProvider === "vscode-lm") {
-			vscode.postMessage({ type: "requestVsCodeLmModels" })
+			try {
+				const response = await ModelsServiceClient.getVsCodeLmModels({})
+				if (response && response.models) {
+					setVsCodeLmModels(response.models)
+				}
+			} catch (error) {
+				console.error("Failed to fetch VS Code LM models:", error)
+				setVsCodeLmModels([])
+			}
 		}
 	}, [selectedProvider, apiConfiguration?.ollamaBaseUrl, apiConfiguration?.lmStudioBaseUrl])
 	useEffect(() => {
@@ -157,18 +229,6 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 		requestLocalModels,
 		selectedProvider === "ollama" || selectedProvider === "lmstudio" || selectedProvider === "vscode-lm" ? 2000 : null,
 	)
-
-	const handleMessage = useCallback((event: MessageEvent) => {
-		const message: ExtensionMessage = event.data
-		if (message.type === "ollamaModels" && message.ollamaModels) {
-			setOllamaModels(message.ollamaModels)
-		} else if (message.type === "lmStudioModels" && message.lmStudioModels) {
-			setLmStudioModels(message.lmStudioModels)
-		} else if (message.type === "vsCodeLmModels" && message.vsCodeLmModels) {
-			setVsCodeLmModels(message.vsCodeLmModels)
-		}
-	}, [])
-	useEvent("message", handleMessage)
 
 	/*
 	VSCodeDropdown has an open bug where dynamically rendered options don't auto select the provided value prop. You can see this for yourself by comparing  it with normal select/option elements, which work as expected.
@@ -202,6 +262,34 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 		)
 	}
 
+	// Debounced function to refresh OpenAI models (prevents excessive API calls while typing)
+	const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+	useEffect(() => {
+		return () => {
+			if (debounceTimerRef.current) {
+				clearTimeout(debounceTimerRef.current)
+			}
+		}
+	}, [])
+
+	const debouncedRefreshOpenAiModels = useCallback((baseUrl?: string, apiKey?: string) => {
+		if (debounceTimerRef.current) {
+			clearTimeout(debounceTimerRef.current)
+		}
+
+		if (baseUrl && apiKey) {
+			debounceTimerRef.current = setTimeout(() => {
+				ModelsServiceClient.refreshOpenAiModels({
+					baseUrl,
+					apiKey,
+				}).catch((error) => {
+					console.error("Failed to refresh OpenAI models:", error)
+				})
+			}, 500)
+		}
+	}, [])
+
 	return (
 		<div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: isPopup ? -10 : 0 }}>
 			<DropdownContainer className="dropdown-container">
@@ -219,7 +307,7 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 					<VSCodeOption value="cline">Cline</VSCodeOption>
 					<VSCodeOption value="openrouter">OpenRouter</VSCodeOption>
 					<VSCodeOption value="anthropic">Anthropic</VSCodeOption>
-					<VSCodeOption value="bedrock">AWS Bedrock</VSCodeOption>
+					<VSCodeOption value="bedrock">Amazon Bedrock</VSCodeOption>
 					<VSCodeOption value="openai">OpenAI Compatible</VSCodeOption>
 					<VSCodeOption value="vertex">GCP Vertex AI</VSCodeOption>
 					<VSCodeOption value="gemini">Google Gemini</VSCodeOption>
@@ -520,7 +608,12 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 						type="password"
 						onInput={handleInputChange("openRouterApiKey")}
 						placeholder="Enter API Key...">
-						<span style={{ fontWeight: 500 }}>OpenRouter API Key</span>
+						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+							<span style={{ fontWeight: 500 }}>OpenRouter API Key</span>
+							{apiConfiguration?.openRouterApiKey && (
+								<OpenRouterBalanceDisplay apiKey={apiConfiguration.openRouterApiKey} />
+							)}
+						</div>
 					</VSCodeTextField>
 					{!apiConfiguration?.openRouterApiKey && (
 						<VSCodeButtonLink
@@ -715,6 +808,98 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 							</>
 						)}
 					</p>
+					<label htmlFor="bedrock-model-dropdown">
+						<span style={{ fontWeight: 500 }}>Model</span>
+					</label>
+					<DropdownContainer zIndex={DROPDOWN_Z_INDEX - 2} className="dropdown-container">
+						<VSCodeDropdown
+							id="bedrock-model-dropdown"
+							value={apiConfiguration?.awsBedrockCustomSelected ? "custom" : selectedModelId}
+							onChange={(e: any) => {
+								const isCustom = e.target.value === "custom"
+								setApiConfiguration({
+									...apiConfiguration,
+									apiModelId: isCustom ? "" : e.target.value,
+									awsBedrockCustomSelected: isCustom,
+									awsBedrockCustomModelBaseId: bedrockDefaultModelId,
+								})
+							}}
+							style={{ width: "100%" }}>
+							<VSCodeOption value="">Select a model...</VSCodeOption>
+							{Object.keys(bedrockModels).map((modelId) => (
+								<VSCodeOption
+									key={modelId}
+									value={modelId}
+									style={{
+										whiteSpace: "normal",
+										wordWrap: "break-word",
+										maxWidth: "100%",
+									}}>
+									{modelId}
+								</VSCodeOption>
+							))}
+							<VSCodeOption value="custom">Custom</VSCodeOption>
+						</VSCodeDropdown>
+					</DropdownContainer>
+					{apiConfiguration?.awsBedrockCustomSelected && (
+						<div>
+							<p
+								style={{
+									fontSize: "12px",
+									marginTop: "5px",
+									color: "var(--vscode-descriptionForeground)",
+								}}>
+								Select "Custom" when using the Application Inference Profile in Bedrock. Enter the Application
+								Inference Profile ARN in the Model ID field.
+							</p>
+							<label htmlFor="bedrock-model-input">
+								<span style={{ fontWeight: 500 }}>Model ID</span>
+							</label>
+							<VSCodeTextField
+								id="bedrock-model-input"
+								value={apiConfiguration?.apiModelId || ""}
+								style={{ width: "100%", marginTop: 3 }}
+								onInput={handleInputChange("apiModelId")}
+								placeholder="Enter custom model ID..."
+							/>
+							<label htmlFor="bedrock-base-model-dropdown">
+								<span style={{ fontWeight: 500 }}>Base Inference Model</span>
+							</label>
+							<DropdownContainer zIndex={DROPDOWN_Z_INDEX - 3} className="dropdown-container">
+								<VSCodeDropdown
+									id="bedrock-base-model-dropdown"
+									value={apiConfiguration?.awsBedrockCustomModelBaseId || bedrockDefaultModelId}
+									onChange={handleInputChange("awsBedrockCustomModelBaseId")}
+									style={{ width: "100%" }}>
+									<VSCodeOption value="">Select a model...</VSCodeOption>
+									{Object.keys(bedrockModels).map((modelId) => (
+										<VSCodeOption
+											key={modelId}
+											value={modelId}
+											style={{
+												whiteSpace: "normal",
+												wordWrap: "break-word",
+												maxWidth: "100%",
+											}}>
+											{modelId}
+										</VSCodeOption>
+									))}
+								</VSCodeDropdown>
+							</DropdownContainer>
+						</div>
+					)}
+					{(selectedModelId === "anthropic.claude-3-7-sonnet-20250219-v1:0" ||
+						(apiConfiguration?.awsBedrockCustomSelected &&
+							apiConfiguration?.awsBedrockCustomModelBaseId === "anthropic.claude-3-7-sonnet-20250219-v1:0")) && (
+						<ThinkingBudgetSlider apiConfiguration={apiConfiguration} setApiConfiguration={setApiConfiguration} />
+					)}
+					<ModelInfoView
+						selectedModelId={selectedModelId}
+						modelInfo={selectedModelInfo}
+						isDescriptionExpanded={isDescriptionExpanded}
+						setIsDescriptionExpanded={setIsDescriptionExpanded}
+						isPopup={isPopup}
+					/>
 				</div>
 			)}
 
@@ -824,6 +1009,15 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 							</VSCodeLink>
 						)}
 					</p>
+
+					{/* Add Thinking Budget Slider specifically for gemini-2.5-flash-preview-04-17 */}
+					{selectedProvider === "gemini" && selectedModelId === "gemini-2.5-flash-preview-04-17" && (
+						<ThinkingBudgetSlider
+							apiConfiguration={apiConfiguration}
+							setApiConfiguration={setApiConfiguration}
+							maxBudget={selectedModelInfo.thinkingConfig?.maxBudget}
+						/>
+					)}
 				</div>
 			)}
 
@@ -833,7 +1027,12 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 						value={apiConfiguration?.openAiBaseUrl || ""}
 						style={{ width: "100%", marginBottom: 10 }}
 						type="url"
-						onInput={handleInputChange("openAiBaseUrl")}
+						onInput={(e: any) => {
+							const baseUrl = e.target.value
+							handleInputChange("openAiBaseUrl")({ target: { value: baseUrl } })
+
+							debouncedRefreshOpenAiModels(baseUrl, apiConfiguration?.openAiApiKey)
+						}}
 						placeholder={"Enter base URL..."}>
 						<span style={{ fontWeight: 500 }}>Base URL</span>
 					</VSCodeTextField>
@@ -841,7 +1040,12 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 						value={apiConfiguration?.openAiApiKey || ""}
 						style={{ width: "100%", marginBottom: 10 }}
 						type="password"
-						onInput={handleInputChange("openAiApiKey")}
+						onInput={(e: any) => {
+							const apiKey = e.target.value
+							handleInputChange("openAiApiKey")({ target: { value: apiKey } })
+
+							debouncedRefreshOpenAiModels(apiConfiguration?.openAiBaseUrl, apiKey)
+						}}
 						placeholder="Enter API Key...">
 						<span style={{ fontWeight: 500 }}>API Key</span>
 					</VSCodeTextField>
@@ -994,19 +1198,19 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 								Supports Images
 							</VSCodeCheckbox>
 							<VSCodeCheckbox
-								checked={!!apiConfiguration?.openAiModelInfo?.supportsComputerUse}
+								checked={!!apiConfiguration?.openAiModelInfo?.supportsImages}
 								onChange={(e: any) => {
 									const isChecked = e.target.checked === true
 									let modelInfo = apiConfiguration?.openAiModelInfo
 										? apiConfiguration.openAiModelInfo
 										: { ...openAiModelInfoSaneDefaults }
-									modelInfo = { ...modelInfo, supportsComputerUse: isChecked }
+									modelInfo.supportsImages = isChecked
 									setApiConfiguration({
 										...apiConfiguration,
 										openAiModelInfo: modelInfo,
 									})
 								}}>
-								Supports Computer Use
+								Supports browser use
 							</VSCodeCheckbox>
 							<VSCodeCheckbox
 								checked={!!apiConfiguration?.openAiModelInfo?.isR1FormatRequired}
@@ -1555,6 +1759,31 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 				</p>
 			)}
 
+			{selectedProvider === "ollama" && showModelOptions && (
+				<>
+					<VSCodeTextField
+						value={apiConfiguration?.requestTimeoutMs ? apiConfiguration.requestTimeoutMs.toString() : "30000"}
+						style={{ width: "100%" }}
+						onInput={(e: any) => {
+							const value = e.target.value
+							// Convert to number, with validation
+							const numValue = parseInt(value, 10)
+							if (!isNaN(numValue) && numValue > 0) {
+								setApiConfiguration({
+									...apiConfiguration,
+									requestTimeoutMs: numValue,
+								})
+							}
+						}}
+						placeholder="Default: 30000 (30 seconds)">
+						<span style={{ fontWeight: 500 }}>Request Timeout (ms)</span>
+					</VSCodeTextField>
+					<p style={{ fontSize: "12px", marginTop: 3, color: "var(--vscode-descriptionForeground)" }}>
+						Maximum time in milliseconds to wait for API responses before timing out.
+					</p>
+				</>
+			)}
+
 			{(selectedProvider === "openrouter" || selectedProvider === "cline") && showModelOptions && (
 				<>
 					<VSCodeCheckbox
@@ -1614,6 +1843,7 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 				selectedProvider !== "vscode-lm" &&
 				selectedProvider !== "litellm" &&
 				selectedProvider !== "requesty" &&
+				selectedProvider !== "bedrock" &&
 				showModelOptions && (
 					<>
 						<DropdownContainer zIndex={DROPDOWN_Z_INDEX - 2} className="dropdown-container">
@@ -1621,7 +1851,6 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 								<span style={{ fontWeight: 500 }}>Model</span>
 							</label>
 							{selectedProvider === "anthropic" && createDropdown(anthropicModels)}
-							{selectedProvider === "bedrock" && createDropdown(bedrockModels)}
 							{selectedProvider === "vertex" && createDropdown(vertexModels)}
 							{selectedProvider === "gemini" && createDropdown(geminiModels)}
 							{selectedProvider === "openai-native" && createDropdown(openAiNativeModels)}
@@ -1638,7 +1867,6 @@ const ApiOptions = ({ showModelOptions, apiErrorMessage, modelIdErrorMessage, is
 						</DropdownContainer>
 
 						{((selectedProvider === "anthropic" && selectedModelId === "claude-3-7-sonnet-20250219") ||
-							(selectedProvider === "bedrock" && selectedModelId === "anthropic.claude-3-7-sonnet-20250219-v1:0") ||
 							(selectedProvider === "vertex" && selectedModelId === "claude-3-7-sonnet@20250219")) && (
 							<ThinkingBudgetSlider apiConfiguration={apiConfiguration} setApiConfiguration={setApiConfiguration} />
 						)}
@@ -1738,18 +1966,39 @@ export const formatPrice = (price: number) => {
 }
 
 // Returns an array of formatted tier strings
-const formatTiers = (tiers: ModelInfo["inputPriceTiers"]): string[] => {
+const formatTiers = (
+	tiers: ModelInfo["tiers"],
+	priceType: "inputPrice" | "outputPrice" | "cacheReadsPrice" | "cacheWritesPrice",
+): JSX.Element[] => {
 	if (!tiers || tiers.length === 0) {
 		return []
 	}
-	return tiers.map((tier, index, arr) => {
-		const prevLimit = index > 0 ? arr[index - 1].tokenLimit : 0
-		const limitText =
-			tier.tokenLimit === Infinity
-				? `> ${prevLimit.toLocaleString()}` // Assumes sorted and Infinity is last
-				: `<= ${tier.tokenLimit.toLocaleString()}`
-		return `${formatPrice(tier.price)}/million tokens (${limitText} tokens)`
-	})
+
+	return tiers
+		.map((tier, index, arr) => {
+			const prevLimit = index > 0 ? arr[index - 1].contextWindow : 0
+			const price = tier[priceType]
+
+			if (price === undefined) return null
+
+			return (
+				<span style={{ paddingLeft: "15px" }} key={index}>
+					{formatPrice(price)}/million tokens (
+					{tier.contextWindow === Number.POSITIVE_INFINITY ? (
+						<span>
+							{">"} {prevLimit.toLocaleString()}
+						</span>
+					) : (
+						<span>
+							{"<="} {tier.contextWindow.toLocaleString()}
+						</span>
+					)}
+					{" tokens)"}
+					{index < arr.length - 1 && <br />}
+				</span>
+			)
+		})
+		.filter((element): element is JSX.Element => element !== null)
 }
 
 export const ModelInfoView = ({
@@ -1766,18 +2015,15 @@ export const ModelInfoView = ({
 	isPopup?: boolean
 }) => {
 	const isGemini = Object.keys(geminiModels).includes(selectedModelId)
+	const hasThinkingConfig = !!modelInfo.thinkingConfig
+	const hasTiers = !!modelInfo.tiers && modelInfo.tiers.length > 0
 
-	// Create elements for tiered pricing separately
-	const inputPriceElement = modelInfo.inputPriceTiers ? (
+	// Create elements for input pricing
+	const inputPriceElement = hasTiers ? (
 		<Fragment key="inputPriceTiers">
 			<span style={{ fontWeight: 500 }}>Input price:</span>
 			<br />
-			{formatTiers(modelInfo.inputPriceTiers).map((tierString, i, arr) => (
-				<Fragment key={`inputTierFrag${i}`}>
-					<span style={{ paddingLeft: "15px" }}>{tierString}</span>
-					{i < arr.length - 1 && <br />}
-				</Fragment>
-			))}
+			{formatTiers(modelInfo.tiers, "inputPrice")}
 		</Fragment>
 	) : modelInfo.inputPrice !== undefined && modelInfo.inputPrice > 0 ? (
 		<span key="inputPrice">
@@ -1785,23 +2031,38 @@ export const ModelInfoView = ({
 		</span>
 	) : null
 
-	const outputPriceElement = modelInfo.outputPriceTiers ? (
-		<Fragment key="outputPriceTiers">
-			<span style={{ fontWeight: 500 }}>Output price:</span>
-			<span style={{ fontStyle: "italic" }}> (based on input tokens)</span>
-			<br />
-			{formatTiers(modelInfo.outputPriceTiers).map((tierString, i, arr) => (
-				<Fragment key={`outputTierFrag${i}`}>
-					<span style={{ paddingLeft: "15px" }}>{tierString}</span>
-					{i < arr.length - 1 && <br />}
-				</Fragment>
-			))}
-		</Fragment>
-	) : modelInfo.outputPrice !== undefined && modelInfo.outputPrice > 0 ? (
-		<span key="outputPrice">
-			<span style={{ fontWeight: 500 }}>Output price:</span> {formatPrice(modelInfo.outputPrice)}/million tokens
-		</span>
-	) : null
+	// --- Output Price Logic ---
+	let outputPriceElement = null
+	if (hasThinkingConfig && modelInfo.outputPrice !== undefined && modelInfo.thinkingConfig?.outputPrice !== undefined) {
+		// Display both standard and thinking budget prices
+		outputPriceElement = (
+			<Fragment key="outputPriceConditional">
+				<span style={{ fontWeight: 500 }}>Output price (Standard):</span> {formatPrice(modelInfo.outputPrice)}/million
+				tokens
+				<br />
+				<span style={{ fontWeight: 500 }}>Output price (Thinking Budget &gt; 0):</span>{" "}
+				{formatPrice(modelInfo.thinkingConfig.outputPrice)}/million tokens
+			</Fragment>
+		)
+	} else if (hasTiers) {
+		// Display tiered output pricing
+		outputPriceElement = (
+			<Fragment key="outputPriceTiers">
+				<span style={{ fontWeight: 500 }}>Output price:</span>
+				<span style={{ fontStyle: "italic" }}> (based on input tokens)</span>
+				<br />
+				{formatTiers(modelInfo.tiers, "outputPrice")}
+			</Fragment>
+		)
+	} else if (modelInfo.outputPrice !== undefined && modelInfo.outputPrice > 0) {
+		// Display single standard output price
+		outputPriceElement = (
+			<span key="outputPrice">
+				<span style={{ fontWeight: 500 }}>Output price:</span> {formatPrice(modelInfo.outputPrice)}/million tokens
+			</span>
+		)
+	}
+	// --- End Output Price Logic ---
 
 	const infoItems = [
 		modelInfo.description && (
@@ -1820,10 +2081,10 @@ export const ModelInfoView = ({
 			doesNotSupportLabel="Does not support images"
 		/>,
 		<ModelInfoSupportsItem
-			key="supportsComputerUse"
-			isSupported={modelInfo.supportsComputerUse ?? false}
-			supportsLabel="Supports computer use"
-			doesNotSupportLabel="Does not support computer use"
+			key="supportsBrowserUse"
+			isSupported={modelInfo.supportsImages ?? false} // cline browser tool uses image recognition for navigation (requires model image support).
+			supportsLabel="Supports browser use"
+			doesNotSupportLabel="Does not support browser use"
 		/>,
 		!isGemini && (
 			<ModelInfoSupportsItem
@@ -1936,6 +2197,14 @@ export function normalizeApiConfiguration(apiConfiguration?: ApiConfiguration): 
 		case "anthropic":
 			return getProviderData(anthropicModels, anthropicDefaultModelId)
 		case "bedrock":
+			if (apiConfiguration?.awsBedrockCustomSelected) {
+				const baseModelId = apiConfiguration.awsBedrockCustomModelBaseId
+				return {
+					selectedProvider: provider,
+					selectedModelId: modelId || bedrockDefaultModelId,
+					selectedModelInfo: (baseModelId && bedrockModels[baseModelId]) || bedrockModels[bedrockDefaultModelId],
+				}
+			}
 			return getProviderData(bedrockModels, bedrockDefaultModelId)
 		case "vertex":
 			return getProviderData(vertexModels, vertexDefaultModelId)
