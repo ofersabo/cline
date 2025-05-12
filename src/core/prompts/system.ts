@@ -670,7 +670,7 @@ export function addUserInstructions(
 		customInstructions += globalClineRulesFileInstructions + "\n\n"
 	}
 	if (localClineRulesFileInstructions) {
-		customInstructions += localClineRulesFileInstructions + "\n\n"
+		customInstructions += localClineRulesFileInstructions +"\n\n"
 	}
 	if (localCursorRulesFileInstructions) {
 		customInstructions += localCursorRulesFileInstructions + "\n\n"

@@ -15,7 +15,9 @@
 			"env": {
 				"IS_DEV": "true",
 				"DEV_WORKSPACE_FOLDER": "${workspaceFolder}"
-			}
+
+			},
+			"runtimeExecutable": "/Users/ofersabo/.nvm/versions/node/v20.19.1/bin/node"
 		},
 		{
 			"name": "Run Extension (Fresh Install Mode)",
@@ -58,6 +60,8 @@
 				"HOST_BRIDGE_ADDRESS": "localhost:50052"
 			},
 			"program": "standalone.js"
-		}
+
+			},
+			
 	]
 }
