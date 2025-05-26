@@ -13,12 +13,14 @@ import { ApiStream, ApiStreamUsageChunk } from "./transform/stream"
 import { DeepSeekHandler } from "./providers/deepseek"
 import { RequestyHandler } from "./providers/requesty"
 import { TogetherHandler } from "./providers/together"
+import { NebiusHandler } from "./providers/nebius"
 import { QwenHandler } from "./providers/qwen"
 import { MistralHandler } from "./providers/mistral"
 import { DoubaoHandler } from "./providers/doubao"
 import { VsCodeLmHandler } from "./providers/vscode-lm"
 import { ClineHandler } from "./providers/cline"
 import { LiteLlmHandler } from "./providers/litellm"
+import { FireworksHandler } from "./providers/fireworks"
 import { AskSageHandler } from "./providers/asksage"
 import { XAIHandler } from "./providers/xai"
 import { SambanovaHandler } from "./providers/sambanova"
@@ -58,6 +60,8 @@ export function buildApiHandler(configuration: ApiConfiguration): ApiHandler {
 			return new DeepSeekHandler(options)
 		case "requesty":
 			return new RequestyHandler(options)
+		case "fireworks":
+			return new FireworksHandler(options)
 		case "together":
 			return new TogetherHandler(options)
 		case "qwen":
@@ -72,6 +76,8 @@ export function buildApiHandler(configuration: ApiConfiguration): ApiHandler {
 			return new ClineHandler(options)
 		case "litellm":
 			return new LiteLlmHandler(options)
+		case "nebius":
+			return new NebiusHandler(options)
 		case "asksage":
 			return new AskSageHandler(options)
 		case "xai":
