@@ -377,3 +377,9 @@ To add new metrics:
 1. Update the database schema in `evals/cli/src/db/schema.ts`
 2. Add collection logic in `evals/cli/src/utils/results.ts`
 3. Update report generation in `evals/cli/src/commands/report.ts`
+
+
+# installing 
+npm install
+cd webview-ui
+npm install
