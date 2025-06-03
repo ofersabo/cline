@@ -21,13 +21,14 @@ export class MistralHandler implements ApiHandler {
 
 	@withRetry()
 	async *createMessage(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]): ApiStream {
-		// Write the prompt to a file for debugging
-		await this.writePromptToFile(systemPrompt, messages)
+		// Convert messages to Mistral format before writing to file
+		const mistralMessages = convertToMistralMessages(messages)
+		await this.writePromptToFile(systemPrompt, mistralMessages)
 		
 		// Also log to console for easier testing
 		console.log("OpenAI Native Prompt Logging:")
 		console.log("System Prompt:", systemPrompt)
-		console.log("Messages:", JSON.stringify(messages, null, 2))
+		console.log("Messages:", JSON.stringify(mistralMessages, null, 2))
 
 		const stream = await this.client.chat
 			.stream({
@@ -85,9 +86,9 @@ export class MistralHandler implements ApiHandler {
 	}
 
 	/**
-	 * Writes the system prompt and messages to a file for debugging purposes
+	 * Writes the system prompt and Mistral-formatted messages to a file for debugging purposes
 	 */
-	private async writePromptToFile(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]) {
+	private async writePromptToFile(systemPrompt: string, messages: { role: string; content: any }[]) {
 		try {
 			// Create a logs directory if it doesn't exist
 			const baseLogsDir = '/Users/ofersabo/code/cline/logs'
@@ -116,13 +117,9 @@ export class MistralHandler implements ApiHandler {
 				timestamp: new Date().toISOString(),
 				model: this.getModel().id,
 				systemPrompt,
-				messages: messages.map(msg => ({
-					role: msg.role,
-					content: msg.content
-				})),
-				mistralMessages: [
+				messages: [
 					{ role: "system", content: systemPrompt },
-					...convertToMistralMessages(messages)
+					...messages
 				]
 			}
 
@@ -135,7 +132,7 @@ export class MistralHandler implements ApiHandler {
 		}
 	}
 
-	private getSubdirectoryNameFromMessages(messages: Anthropic.Messages.MessageParam[]): string {
+	private getSubdirectoryNameFromMessages(messages: { role: string; content: any }[]): string {
 		if (!messages || messages.length === 0) return 'unknown'
 		const firstContent = typeof messages[0].content === 'string' ? messages[0].content : JSON.stringify(messages[0].content)
 		return firstContent.slice(0, 32).replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown'
