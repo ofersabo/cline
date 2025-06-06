@@ -9,8 +9,6 @@ import styled from "styled-components"
 import AddRemoteServerForm from "./tabs/add-server/AddRemoteServerForm"
 import InstalledServersView from "./tabs/installed/InstalledServersView"
 import McpMarketplaceView from "./tabs/marketplace/McpMarketplaceView"
-import { convertProtoMcpServersToMcpServers } from "@shared/proto-conversions/mcp/mcp-server-conversion"
-import { McpServers } from "@shared/proto/mcp"
 
 type McpViewProps = {
 	onDone: () => void

@@ -8,11 +8,16 @@ export async function updateTerminalConnectionTimeout(
 ): Promise<proto.cline.Int64> {
 	const timeoutValue = request.value
 
-	// Update the terminal connection timeout setting in the state
-	await updateGlobalState(controller.context, "shellIntegrationTimeout", timeoutValue)
-
-	// Broadcast state update to all webviews
-	await controller.postStateToWebview()
-
-	return proto.cline.Int64.create({ value: timeoutValue })
+		if (typeof timeout === "number" && !isNaN(timeout) && timeout > 0) {
+			// Update the global state directly
+			await updateGlobalState(controller.context, "shellIntegrationTimeout", timeout)
+			return Int64.create({ value: timeout })
+		} else {
+			console.warn(`Invalid shell integration timeout value received: ${timeout}. Expected a positive number.`)
+			throw new Error("Invalid timeout value. Expected a positive number.")
+		}
+	} catch (error) {
+		console.error(`Failed to update terminal connection timeout: ${error}`)
+		throw error
+	}
 }

@@ -22,8 +22,6 @@ export type SecretKey =
 	| "nebiusApiKey"
 	| "sambanovaApiKey"
 	| "cerebrasApiKey"
-	| "sapAiCoreClientId"
-	| "sapAiCoreClientSecret"
 
 export type GlobalStateKey =
 	| "awsRegion"
@@ -69,7 +67,6 @@ export type GlobalStateKey =
 	| "shellIntegrationTimeout"
 	| "mcpResponsesCollapsed"
 	| "terminalReuseEnabled"
-	| "defaultTerminalProfile"
 	| "isNewUser"
 	| "terminalOutputLineLimit"
 	| "mcpRichDisplayEnabled"

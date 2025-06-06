@@ -1,31 +1,54 @@
+import VSCodeButtonLink from "@/components/common/VSCodeButtonLink"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { ModelsServiceClient } from "@/services/grpc-client"
+import { vscode } from "@/utils/vscode"
 import { getAsVar, VSC_DESCRIPTION_FOREGROUND } from "@/utils/vscStyles"
 import {
+	anthropicDefaultModelId,
 	anthropicModels,
 	ApiConfiguration,
+	ApiProvider,
+	askSageDefaultModelId,
 	askSageDefaultURL,
 	askSageModels,
+	azureOpenAiDefaultApiVersion,
 	bedrockDefaultModelId,
 	bedrockModels,
+	cerebrasDefaultModelId,
 	cerebrasModels,
-	claudeCodeModels,
+	deepSeekDefaultModelId,
+	deepSeekModels,
+	doubaoDefaultModelId,
 	doubaoModels,
+	geminiDefaultModelId,
 	geminiModels,
+	internationalQwenDefaultModelId,
 	internationalQwenModels,
 	liteLlmModelInfoSaneDefaults,
+	mainlandQwenDefaultModelId,
 	mainlandQwenModels,
+	mistralDefaultModelId,
+	mistralModels,
 	ModelInfo,
+	nebiusDefaultModelId,
 	nebiusModels,
+	openAiModelInfoSaneDefaults,
+	openAiNativeDefaultModelId,
 	openAiNativeModels,
+	openRouterDefaultModelId,
+	openRouterDefaultModelInfo,
+	requestyDefaultModelId,
+	requestyDefaultModelInfo,
+	sambanovaDefaultModelId,
+	sambanovaModels,
+	vertexDefaultModelId,
 	vertexGlobalModels,
 	vertexModels,
+	xaiDefaultModelId,
 	xaiModels,
-	sapAiCoreModels,
 } from "@shared/api"
 import { EmptyRequest, StringRequest } from "@shared/proto/common"
-import { OpenAiModelsRequest, UpdateApiConfigurationRequest } from "@shared/proto/models"
-import { convertApiConfigurationToProto } from "@shared/proto-conversions/models/api-configuration-conversion"
+import { OpenAiModelsRequest } from "@shared/proto/models"
 import {
 	VSCodeButton,
 	VSCodeCheckbox,
@@ -40,20 +63,12 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useInterval } from "react-use"
 import styled from "styled-components"
 import * as vscodemodels from "vscode"
+import { useOpenRouterKeyInfo } from "../ui/hooks/useOpenRouterKeyInfo"
 import { ClineAccountInfoCard } from "./ClineAccountInfoCard"
 import OllamaModelPicker from "./OllamaModelPicker"
 import OpenRouterModelPicker, { ModelDescriptionMarkdown, OPENROUTER_MODEL_PICKER_Z_INDEX } from "./OpenRouterModelPicker"
 import RequestyModelPicker from "./RequestyModelPicker"
 import ThinkingBudgetSlider from "./ThinkingBudgetSlider"
-import { formatPrice } from "./utils/pricingUtils"
-import { normalizeApiConfiguration } from "./utils/providerUtils"
-
-import { OpenRouterProvider } from "./providers/OpenRouterProvider"
-import { MistralProvider } from "./providers/MistralProvider"
-import { DeepSeekProvider } from "./providers/DeepSeekProvider"
-import { TogetherProvider } from "./providers/TogetherProvider"
-import { OpenAICompatibleProvider } from "./providers/OpenAICompatible"
-import { SambanovaProvider } from "./providers/SambanovaProvider"
 
 interface ApiOptionsProps {
 	showModelOptions: boolean
@@ -86,6 +101,23 @@ const SUPPORTED_THINKING_MODELS: Record<string, string[]> = {
 		"qwen-turbo-latest",
 	],
 	gemini: ["gemini-2.5-flash-preview-05-20", "gemini-2.5-flash-preview-04-17", "gemini-2.5-pro-preview-06-05"],
+}
+
+const SUPPORTED_THINKING_MODELS: Record<string, string[]> = {
+	anthropic: ["claude-3-7-sonnet-20250219", "claude-sonnet-4-20250514", "claude-opus-4-20250514"],
+	vertex: ["claude-3-7-sonnet@20250219", "claude-sonnet-4@20250514", "claude-opus-4@20250514"],
+	qwen: [
+		"qwen3-235b-a22b",
+		"qwen3-32b",
+		"qwen3-30b-a3b",
+		"qwen3-14b",
+		"qwen3-8b",
+		"qwen3-4b",
+		"qwen3-1.7b",
+		"qwen3-0.6b",
+		"qwen-plus-latest",
+		"qwen-turbo-latest",
+	],
 }
 
 // This is necessary to ensure dropdown opens downward, important for when this is used in popup
@@ -251,6 +283,36 @@ const ApiOptions = ({
 		)
 	}
 
+	// Debounced function to refresh OpenAI models (prevents excessive API calls while typing)
+	const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+	useEffect(() => {
+		return () => {
+			if (debounceTimerRef.current) {
+				clearTimeout(debounceTimerRef.current)
+			}
+		}
+	}, [])
+
+	const debouncedRefreshOpenAiModels = useCallback((baseUrl?: string, apiKey?: string) => {
+		if (debounceTimerRef.current) {
+			clearTimeout(debounceTimerRef.current)
+		}
+
+		if (baseUrl && apiKey) {
+			debounceTimerRef.current = setTimeout(() => {
+				ModelsServiceClient.refreshOpenAiModels(
+					OpenAiModelsRequest.create({
+						baseUrl,
+						apiKey,
+					}),
+				).catch((error) => {
+					console.error("Failed to refresh OpenAI models:", error)
+				})
+			}, 500)
+		}
+	}, [])
+
 	return (
 		<div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: isPopup ? -10 : 0 }}>
 			<DropdownContainer className="dropdown-container">
@@ -290,7 +352,6 @@ const ApiOptions = ({
 					<VSCodeOption value="xai">xAI</VSCodeOption>
 					<VSCodeOption value="sambanova">SambaNova</VSCodeOption>
 					<VSCodeOption value="cerebras">Cerebras</VSCodeOption>
-					<VSCodeOption value="sapaicore">SAP AI Core</VSCodeOption>
 				</VSCodeDropdown>
 			</DropdownContainer>
 
@@ -1577,67 +1638,33 @@ const ApiOptions = ({
 				</div>
 			)}
 
-			{selectedProvider === "sapaicore" && (
-				<div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+			{selectedProvider === "cerebras" && (
+				<div>
 					<VSCodeTextField
-						value={apiConfiguration?.sapAiCoreClientId || ""}
+						value={apiConfiguration?.cerebrasApiKey || ""}
 						style={{ width: "100%" }}
 						type="password"
-						onInput={handleInputChange("sapAiCoreClientId")}
-						placeholder="Enter AI Core Client Id...">
-						<span style={{ fontWeight: 500 }}>AI Core Client Id</span>
-					</VSCodeTextField>
-					{apiConfiguration?.sapAiCoreClientId && (
-						<p style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}>
-							Client Id is set. To change it, please re-enter the value.
-						</p>
-					)}
-					<VSCodeTextField
-						value={apiConfiguration?.sapAiCoreClientSecret ? "********" : ""}
-						style={{ width: "100%" }}
-						type="password"
-						onInput={handleInputChange("sapAiCoreClientSecret")}
-						placeholder="Enter AI Core Client Secret...">
-						<span style={{ fontWeight: 500 }}>AI Core Client Secret</span>
-					</VSCodeTextField>
-					{apiConfiguration?.sapAiCoreClientSecret && (
-						<p style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}>
-							Client Secret is set. To change it, please re-enter the value.
-						</p>
-					)}
-					<VSCodeTextField
-						value={apiConfiguration?.sapAiCoreBaseUrl || ""}
-						style={{ width: "100%" }}
-						onInput={handleInputChange("sapAiCoreBaseUrl")}
-						placeholder="Enter AI Core Base URL...">
-						<span style={{ fontWeight: 500 }}>AI Core Base URL</span>
-					</VSCodeTextField>
-					<VSCodeTextField
-						value={apiConfiguration?.sapAiCoreTokenUrl || ""}
-						style={{ width: "100%" }}
-						onInput={handleInputChange("sapAiCoreTokenUrl")}
-						placeholder="Enter AI Core Auth URL...">
-						<span style={{ fontWeight: 500 }}>AI Core Auth URL</span>
-					</VSCodeTextField>
-					<VSCodeTextField
-						value={apiConfiguration?.sapAiResourceGroup || ""}
-						style={{ width: "100%" }}
-						onInput={handleInputChange("sapAiResourceGroup")}
-						placeholder="Enter AI Core Resource Group...">
-						<span style={{ fontWeight: 500 }}>AI Core Resource Group</span>
+						onInput={handleInputChange("cerebrasApiKey")}
+						placeholder="Enter API Key...">
+						<span style={{ fontWeight: 500 }}>Cerebras API Key</span>
 					</VSCodeTextField>
 					<p
 						style={{
 							fontSize: "12px",
-							marginTop: "5px",
+							marginTop: 3,
 							color: "var(--vscode-descriptionForeground)",
 						}}>
-						These credentials are stored locally and only used to make API requests from this extension.
-						<VSCodeLink
-							href="https://help.sap.com/docs/sap-ai-core/sap-ai-core-service-guide/access-sap-ai-core-via-api"
-							style={{ display: "inline" }}>
-							You can find more information about SAP AI Core API access here.
-						</VSCodeLink>
+						This key is stored locally and only used to make API requests from this extension.
+						{!apiConfiguration?.cerebrasApiKey && (
+							<VSCodeLink
+								href="https://cloud.cerebras.ai/"
+								style={{
+									display: "inline",
+									fontSize: "inherit",
+								}}>
+								You can get a Cerebras API key by signing up here.
+							</VSCodeLink>
+						)}
 					</p>
 				</div>
 			)}
@@ -1760,6 +1787,7 @@ const ApiOptions = ({
 							{selectedProvider === "doubao" && createDropdown(doubaoModels)}
 							{selectedProvider === "asksage" && createDropdown(askSageModels)}
 							{selectedProvider === "xai" && createDropdown(xaiModels)}
+							{selectedProvider === "sambanova" && createDropdown(sambanovaModels)}
 							{selectedProvider === "cerebras" && createDropdown(cerebrasModels)}
 							{selectedProvider === "nebius" && createDropdown(nebiusModels)}
 							{selectedProvider === "sapaicore" && createDropdown(sapAiCoreModels)}
@@ -2054,5 +2082,127 @@ const ModelInfoSupportsItem = ({
 		{isSupported ? supportsLabel : doesNotSupportLabel}
 	</span>
 )
+
+export function normalizeApiConfiguration(apiConfiguration?: ApiConfiguration): {
+	selectedProvider: ApiProvider
+	selectedModelId: string
+	selectedModelInfo: ModelInfo
+} {
+	const provider = apiConfiguration?.apiProvider || "anthropic"
+	const modelId = apiConfiguration?.apiModelId
+
+	const getProviderData = (models: Record<string, ModelInfo>, defaultId: string) => {
+		let selectedModelId: string
+		let selectedModelInfo: ModelInfo
+		if (modelId && modelId in models) {
+			selectedModelId = modelId
+			selectedModelInfo = models[modelId]
+		} else {
+			selectedModelId = defaultId
+			selectedModelInfo = models[defaultId]
+		}
+		return {
+			selectedProvider: provider,
+			selectedModelId,
+			selectedModelInfo,
+		}
+	}
+	switch (provider) {
+		case "anthropic":
+			return getProviderData(anthropicModels, anthropicDefaultModelId)
+		case "bedrock":
+			if (apiConfiguration?.awsBedrockCustomSelected) {
+				const baseModelId = apiConfiguration.awsBedrockCustomModelBaseId
+				return {
+					selectedProvider: provider,
+					selectedModelId: modelId || bedrockDefaultModelId,
+					selectedModelInfo: (baseModelId && bedrockModels[baseModelId]) || bedrockModels[bedrockDefaultModelId],
+				}
+			}
+			return getProviderData(bedrockModels, bedrockDefaultModelId)
+		case "vertex":
+			return getProviderData(vertexModels, vertexDefaultModelId)
+		case "gemini":
+			return getProviderData(geminiModels, geminiDefaultModelId)
+		case "openai-native":
+			return getProviderData(openAiNativeModels, openAiNativeDefaultModelId)
+		case "deepseek":
+			return getProviderData(deepSeekModels, deepSeekDefaultModelId)
+		case "qwen":
+			const qwenModels = apiConfiguration?.qwenApiLine === "china" ? mainlandQwenModels : internationalQwenModels
+			const qwenDefaultId =
+				apiConfiguration?.qwenApiLine === "china" ? mainlandQwenDefaultModelId : internationalQwenDefaultModelId
+			return getProviderData(qwenModels, qwenDefaultId)
+		case "doubao":
+			return getProviderData(doubaoModels, doubaoDefaultModelId)
+		case "mistral":
+			return getProviderData(mistralModels, mistralDefaultModelId)
+		case "asksage":
+			return getProviderData(askSageModels, askSageDefaultModelId)
+		case "openrouter":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.openRouterModelId || openRouterDefaultModelId,
+				selectedModelInfo: apiConfiguration?.openRouterModelInfo || openRouterDefaultModelInfo,
+			}
+		case "requesty":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.requestyModelId || requestyDefaultModelId,
+				selectedModelInfo: apiConfiguration?.requestyModelInfo || requestyDefaultModelInfo,
+			}
+		case "cline":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.openRouterModelId || openRouterDefaultModelId,
+				selectedModelInfo: apiConfiguration?.openRouterModelInfo || openRouterDefaultModelInfo,
+			}
+		case "openai":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.openAiModelId || "",
+				selectedModelInfo: apiConfiguration?.openAiModelInfo || openAiModelInfoSaneDefaults,
+			}
+		case "ollama":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.ollamaModelId || "",
+				selectedModelInfo: openAiModelInfoSaneDefaults,
+			}
+		case "lmstudio":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.lmStudioModelId || "",
+				selectedModelInfo: openAiModelInfoSaneDefaults,
+			}
+		case "vscode-lm":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.vsCodeLmModelSelector
+					? `${apiConfiguration.vsCodeLmModelSelector.vendor}/${apiConfiguration.vsCodeLmModelSelector.family}`
+					: "",
+				selectedModelInfo: {
+					...openAiModelInfoSaneDefaults,
+					supportsImages: false, // VSCode LM API currently doesn't support images
+				},
+			}
+		case "litellm":
+			return {
+				selectedProvider: provider,
+				selectedModelId: apiConfiguration?.liteLlmModelId || "",
+				selectedModelInfo: apiConfiguration?.liteLlmModelInfo || liteLlmModelInfoSaneDefaults,
+			}
+		case "xai":
+			return getProviderData(xaiModels, xaiDefaultModelId)
+		case "nebius":
+			return getProviderData(nebiusModels, nebiusDefaultModelId)
+		case "sambanova":
+			return getProviderData(sambanovaModels, sambanovaDefaultModelId)
+		case "cerebras":
+			return getProviderData(cerebrasModels, cerebrasDefaultModelId)
+		default:
+			return getProviderData(anthropicModels, anthropicDefaultModelId)
+	}
+}
 
 export default memo(ApiOptions)

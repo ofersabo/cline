@@ -95,14 +95,7 @@ export const MAX_IMAGES_AND_FILES_PER_MESSAGE = 20
 const QUICK_WINS_HISTORY_THRESHOLD = 300
 
 const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryView }: ChatViewProps) => {
-	const {
-		version,
-		clineMessages: messages,
-		taskHistory,
-		apiConfiguration,
-		telemetrySetting,
-		navigateToChat,
-	} = useExtensionState()
+	const { version, clineMessages: messages, taskHistory, apiConfiguration, telemetrySetting } = useExtensionState()
 	const shouldShowQuickWins = false // !taskHistory || taskHistory.length < QUICK_WINS_HISTORY_THRESHOLD
 	//const task = messages.length > 0 ? (messages[0].say === "task" ? messages[0] : undefined) : undefined) : undefined
 	const task = useMemo(() => messages.at(0), [messages]) // leaving this less safe version here since if the first message is not a task, then the extension is in a bad state and needs to be debugged (see Cline.abort)
@@ -143,14 +136,6 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 	const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 	const [isAtBottom, setIsAtBottom] = useState(false)
 	const [pendingScrollToMessage, setPendingScrollToMessage] = useState<number | null>(null)
-
-	// UI layout depends on the last 2 messages
-	// (since it relies on the content of these messages, we are deep comparing. i.e. the button state after hitting button sets enableButtons to false, and this effect otherwise would have to true again even if messages didn't change
-	const lastMessage = useMemo(() => messages.at(-1), [messages])
-	const secondLastMessage = useMemo(() => messages.at(-2), [messages])
-
-	// Derive clineAsk directly from lastMessage to avoid race conditions
-	const clineAsk = useMemo(() => (lastMessage?.type === "ask" ? lastMessage.ask : undefined), [lastMessage])
 
 	useEffect(() => {
 		const handleCopy = async (e: ClipboardEvent) => {
@@ -368,6 +353,7 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 								setSendingDisabled(true)
 								setSelectedImages([])
 								setSelectedFiles([])
+								setClineAsk(undefined)
 								setEnableButtons(false)
 							}
 							break
@@ -467,6 +453,7 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 				setSendingDisabled(true)
 				setSelectedImages([])
 				setSelectedFiles([])
+				setClineAsk(undefined)
 				setEnableButtons(false)
 				// setPrimaryButtonText(undefined)
 				// setSecondaryButtonText(undefined)
@@ -655,21 +642,33 @@ const ChatView = ({ isHidden, showAnnouncement, hideAnnouncement, showHistoryVie
 
 	const shouldDisableFilesAndImages = selectedImages.length + selectedFiles.length >= MAX_IMAGES_AND_FILES_PER_MESSAGE
 
-	// Listen for local focusChatInput event
-	useEffect(() => {
-		const handleFocusChatInput = () => {
-			if (isHidden) {
-				navigateToChat()
+	const handleMessage = useCallback(
+		(e: MessageEvent) => {
+			const message: ExtensionMessage = e.data
+			switch (message.type) {
+				case "action":
+					switch (message.action!) {
+						case "didBecomeVisible":
+							if (!isHidden && !sendingDisabled && !enableButtons) {
+								textAreaRef.current?.focus()
+							}
+							break
+						case "focusChatInput":
+							textAreaRef.current?.focus()
+							if (isHidden) {
+								window.dispatchEvent(new CustomEvent("chatButtonClicked"))
+							}
+							break
+					}
+					break
 			}
-			textAreaRef.current?.focus()
-		}
+			// textAreaRef.current is not explicitly required here since react guarantees that ref will be stable across re-renders, and we're not using its value but its reference.
+		},
+		[isHidden, sendingDisabled, enableButtons, handleSendMessage, handlePrimaryButtonClick, handleSecondaryButtonClick],
+	)
 
-		window.addEventListener("focusChatInput", handleFocusChatInput)
-
-		return () => {
-			window.removeEventListener("focusChatInput", handleFocusChatInput)
-		}
-	}, [isHidden])
+		return cleanup
+	}, [])
 
 	// Set up addToInput subscription
 	useEffect(() => {

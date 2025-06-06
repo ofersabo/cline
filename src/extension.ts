@@ -22,18 +22,6 @@ import { WebviewProviderType as WebviewProviderTypeEnum } from "@shared/proto/ui
 import { WebviewProviderType } from "./shared/webview/types"
 import { sendHistoryButtonClickedEvent } from "./core/controller/ui/subscribeToHistoryButtonClicked"
 import { sendAccountButtonClickedEvent } from "./core/controller/ui/subscribeToAccountButtonClicked"
-import {
-	migratePlanActGlobalToWorkspaceStorage,
-	migrateCustomInstructionsToGlobalRules,
-	cleanupModeFromWorkspaceStorage,
-} from "./core/storage/state"
-
-import { sendFocusChatInputEvent } from "./core/controller/ui/subscribeToFocusChatInput"
-import { FileContextTracker } from "./core/context/context-tracking/FileContextTracker"
-import * as hostProviders from "@hosts/host-providers"
-import { vscodeHostBridgeClient } from "@/hosts/vscode/client/host-grpc-client"
-import { VscodeWebviewProvider } from "./core/webview/VscodeWebviewProvider"
-import { ExtensionContext } from "vscode"
 
 /*
 Built using https://github.com/microsoft/vscode-webview-ui-toolkit
@@ -73,7 +61,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Version checking for autoupdate notification
 	const currentVersion = context.extension.packageJSON.version
 	const previousVersion = context.globalState.get<string>("clineVersion")
-	const sidebarWebview = hostProviders.createWebviewProvider(WebviewProviderType.SIDEBAR)
+	const sidebarWebview = new WebviewProvider(context, outputChannel, WebviewProviderType.SIDEBAR)
 
 	// Initialize test mode and add disposables to context
 	context.subscriptions.push(...initializeTestMode(context, sidebarWebview))
@@ -149,26 +137,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		vscode.commands.registerCommand("cline.mcpButtonClicked", (webview: any) => {
 			console.log("[DEBUG] mcpButtonClicked", webview)
-
-			const activeInstance = WebviewProvider.getActiveInstance()
+			// Pass the webview type to the event sender
 			const isSidebar = !webview
+			const webviewType = isSidebar ? WebviewProviderTypeEnum.SIDEBAR : WebviewProviderTypeEnum.TAB
 
-			if (isSidebar) {
-				const sidebarInstance = WebviewProvider.getSidebarInstance()
-				const sidebarInstanceId = sidebarInstance?.getClientId()
-				if (sidebarInstanceId) {
-					sendMcpButtonClickedEvent(sidebarInstanceId)
-				} else {
-					console.error("[DEBUG] No sidebar instance found, cannot send MCP button event")
-				}
-			} else {
-				const activeInstanceId = activeInstance?.getClientId()
-				if (activeInstanceId) {
-					sendMcpButtonClickedEvent(activeInstanceId)
-				} else {
-					console.error("[DEBUG] No active instance found, cannot send MCP button event")
-				}
-			}
+			// Will send to appropriate subscribers based on the source webview type
+			sendMcpButtonClickedEvent(webviewType)
 		}),
 	)
 
@@ -176,7 +150,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		Logger.log("Opening Cline in new tab")
 		// (this example uses webviewProvider activation event which is necessary to deserialize cached webview, but since we use retainContextWhenHidden, we don't need to use that event)
 		// https://github.com/microsoft/vscode-extension-samples/blob/main/webview-sample/src/extension.ts
-		const tabWebview = hostProviders.createWebviewProvider(WebviewProviderType.TAB)
+		const tabWebview = new WebviewProvider(context, outputChannel, WebviewProviderType.TAB)
 		//const column = vscode.window.activeTextEditor ? vscode.window.activeTextEditor.viewColumn : undefined
 		const lastCol = Math.max(...vscode.window.visibleTextEditors.map((editor) => editor.viewColumn || 0))
 

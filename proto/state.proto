@@ -63,11 +63,6 @@ message ChatContent {
   repeated string files = 3;
 }
 
-message ResetStateRequest {
-  Metadata metadata = 1;
-  optional bool global = 2;
-}
-
 message AutoApprovalSettingsRequest {
   Metadata metadata = 1;
   message Actions {

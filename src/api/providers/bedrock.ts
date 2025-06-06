@@ -120,8 +120,146 @@ export class AwsBedrockHandler implements ApiHandler {
 			return
 		}
 
-		// Default: Use Anthropic Converse API for all Anthropic models
-		yield* this.createAnthropicMessage(systemPrompt, messages, modelId, model)
+		const budget_tokens = this.options.thinkingBudgetTokens || 0
+		const reasoningOn =
+			(baseModelId.includes("3-7") || baseModelId.includes("sonnet-4") || baseModelId.includes("opus-4")) &&
+			budget_tokens !== 0
+				? true
+				: false
+
+		// Get model info and message indices for caching
+		const userMsgIndices = messages.reduce((acc, msg, index) => (msg.role === "user" ? [...acc, index] : acc), [] as number[])
+		const lastUserMsgIndex = userMsgIndices[userMsgIndices.length - 1] ?? -1
+		const secondLastMsgUserIndex = userMsgIndices[userMsgIndices.length - 2] ?? -1
+
+		// Create anthropic client, using sessions created or renewed after this handler's
+		// initialization, and allowing for session renewal if necessary as well
+		const client = await this.getAnthropicClient()
+
+		// Use withTempEnv to ensure environment variables are properly restored
+		const stream = await AwsBedrockHandler.withTempEnv(
+			() => {
+				// AWS SDK prioritizes AWS_PROFILE over AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY pair
+				// If this is set as an env variable already (ie. from ~/.zshrc) it will override credentials configured by Cline
+				// Temporarily remove AWS_PROFILE to ensure our credentials are used
+				delete process.env["AWS_PROFILE"]
+			},
+			async () => {
+				return await client.messages.create({
+					model: modelId,
+					max_tokens: model.info.maxTokens || 8192,
+					thinking: reasoningOn ? { type: "enabled", budget_tokens: budget_tokens } : undefined,
+					temperature: reasoningOn ? undefined : 0,
+					system: [
+						{
+							text: systemPrompt,
+							type: "text",
+							...(this.options.awsBedrockUsePromptCache === true && {
+								cache_control: { type: "ephemeral" },
+							}),
+						},
+					],
+					messages: messages.map((message, index) => {
+						if (index === lastUserMsgIndex || index === secondLastMsgUserIndex) {
+							return {
+								...message,
+								content:
+									typeof message.content === "string"
+										? [
+												{
+													type: "text",
+													text: message.content,
+													...(this.options.awsBedrockUsePromptCache === true && {
+														cache_control: { type: "ephemeral" },
+													}),
+												},
+											]
+										: message.content.map((content, contentIndex) =>
+												contentIndex === message.content.length - 1
+													? {
+															...content,
+															...(this.options.awsBedrockUsePromptCache === true && {
+																cache_control: { type: "ephemeral" },
+															}),
+														}
+													: content,
+											),
+							}
+						}
+						return message
+					}),
+					stream: true,
+				})
+			},
+		)
+
+		for await (const chunk of stream) {
+			switch (chunk?.type) {
+				case "message_start":
+					const usage = chunk.message.usage
+					yield {
+						type: "usage",
+						inputTokens: usage.input_tokens || 0,
+						outputTokens: usage.output_tokens || 0,
+						cacheWriteTokens: usage.cache_creation_input_tokens || undefined,
+						cacheReadTokens: usage.cache_read_input_tokens || undefined,
+					}
+					break
+				case "message_delta":
+					yield {
+						type: "usage",
+						inputTokens: 0,
+						outputTokens: chunk.usage.output_tokens || 0,
+					}
+					break
+				case "content_block_start":
+					switch (chunk.content_block.type) {
+						case "thinking":
+							yield {
+								type: "reasoning",
+								reasoning: chunk.content_block.thinking || "",
+							}
+							break
+						case "redacted_thinking":
+							// Handle redacted thinking blocks - we still mark it as reasoning
+							// but note that the content is encrypted
+							yield {
+								type: "reasoning",
+								reasoning: "[Redacted thinking block]",
+							}
+							break
+						case "text":
+							if (chunk.index > 0) {
+								yield {
+									type: "text",
+									text: "\n",
+								}
+							}
+							yield {
+								type: "text",
+								text: chunk.content_block.text,
+							}
+							break
+					}
+					break
+				case "content_block_delta":
+					switch (chunk.delta.type) {
+						case "thinking_delta":
+							yield {
+								type: "reasoning",
+								reasoning: chunk.delta.thinking,
+							}
+							break
+						case "text_delta":
+							yield {
+								type: "text",
+								text: chunk.delta.text,
+							}
+							break
+					}
+					break
+			}
+		}
 	}
 
 	getModel(): { id: string; info: ModelInfo } {
@@ -169,7 +307,7 @@ export class AwsBedrockHandler implements ApiHandler {
 		sessionToken?: string
 	}> {
 		// Configure provider options
-		const providerOptions: ProviderChainOptions = {}
+		const providerOptions: any = {}
 		if (this.options.awsUseProfile) {
 			// For profile-based auth, always use ignoreCache to detect credential file changes
 			// This solves the AWS Identity Manager issue where credential files change externally

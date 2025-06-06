@@ -7,9 +7,8 @@ import { Controller } from "@core/controller/index"
 import { findLast } from "@shared/array"
 import { readFile } from "fs/promises"
 import path from "node:path"
-import { v4 as uuidv4 } from "uuid"
-import { Uri } from "vscode"
-import { ExtensionMessage } from "@/shared/ExtensionMessage"
+import { WebviewProviderType } from "@/shared/webview/types"
+import { sendThemeEvent } from "@core/controller/ui/subscribeToTheme"
 
 export abstract class WebviewProvider {
 	public static readonly sideBarId = "claude-dev.SidebarProvider" // used in package.json as the view's id. This value cannot be changed due to how vscode caches views based on their id, and updating the id would break existing instances of the extension.
@@ -22,8 +21,8 @@ export abstract class WebviewProvider {
 
 	constructor(
 		readonly context: vscode.ExtensionContext,
-		protected readonly outputChannel: vscode.OutputChannel,
-		private readonly providerType: WebviewProviderType,
+		private readonly outputChannel: vscode.OutputChannel,
+		private readonly providerType: WebviewProviderType = WebviewProviderType.TAB, // Default to tab provider
 	) {
 		WebviewProvider.activeInstances.add(this)
 		this.clientId = uuidv4()
@@ -82,15 +81,109 @@ export abstract class WebviewProvider {
 	}
 
 	public static getTabInstances(): WebviewProvider[] {
-		return Array.from(this.activeInstances).filter(
-			(instance) => instance.getWebview() && "onDidChangeViewState" in instance.getWebview(),
-		)
+		return Array.from(this.activeInstances).filter((instance) => instance.view && "onDidChangeViewState" in instance.view)
 	}
 
 	public static async disposeAllInstances() {
 		const instances = Array.from(this.activeInstances)
 		for (const instance of instances) {
 			await instance.dispose()
+		}
+	}
+
+	async resolveWebviewView(webviewView: vscode.WebviewView | vscode.WebviewPanel) {
+		this.view = webviewView
+
+		webviewView.webview.options = {
+			// Allow scripts in the webview
+			enableScripts: true,
+			localResourceRoots: [this.context.extensionUri],
+		}
+
+		webviewView.webview.html =
+			this.context.extensionMode === vscode.ExtensionMode.Development
+				? await this.getHMRHtmlContent(webviewView.webview)
+				: this.getHtmlContent(webviewView.webview)
+
+		// Sets up an event listener to listen for messages passed from the webview view context
+		// and executes code based on the message that is received
+		this.setWebviewMessageListener(webviewView.webview)
+
+		// Logs show up in bottom panel > Debug Console
+		//console.log("registering listener")
+
+		// Listen for when the panel becomes visible
+		// https://github.com/microsoft/vscode-discussions/discussions/840
+		if ("onDidChangeViewState" in webviewView) {
+			// WebviewView and WebviewPanel have all the same properties except for this visibility listener
+			// panel
+			webviewView.onDidChangeViewState(
+				() => {
+					if (this.view?.visible) {
+						this.controller.postMessageToWebview({
+							type: "action",
+							action: "didBecomeVisible",
+						})
+					}
+				},
+				null,
+				this.disposables,
+			)
+		} else if ("onDidChangeVisibility" in webviewView) {
+			// sidebar
+			webviewView.onDidChangeVisibility(
+				() => {
+					if (this.view?.visible) {
+						this.controller.postMessageToWebview({
+							type: "action",
+							action: "didBecomeVisible",
+						})
+					}
+				},
+				null,
+				this.disposables,
+			)
+		}
+
+		// Listen for when the view is disposed
+		// This happens when the user closes the view or when the view is closed programmatically
+		webviewView.onDidDispose(
+			async () => {
+				await this.dispose()
+			},
+			null,
+			this.disposables,
+		)
+	}
+
+		// // if the extension is starting a new session, clear previous task state
+		// this.clearTask()
+		{
+			// Listen for configuration changes
+			vscode.workspace.onDidChangeConfiguration(
+				async (e) => {
+					if (e && e.affectsConfiguration("workbench.colorTheme")) {
+						// Send theme update via gRPC subscription
+						const theme = await getTheme()
+						if (theme) {
+							await sendThemeEvent(JSON.stringify(theme))
+						}
+					}
+					if (e && e.affectsConfiguration("cline.mcpMarketplace.enabled")) {
+						// Update state when marketplace tab setting changes
+						await this.controller.postStateToWebview()
+					}
+				},
+				null,
+				this.disposables,
+			)
+
+			// if the extension is starting a new session, clear previous task state
+			this.controller.clearTask()
+
+			this.outputChannel.appendLine("Webview view resolved")
+
+			// Title setting logic removed to allow VSCode to use the container title primarily.
 		}
 	}
 
@@ -213,9 +306,6 @@ export abstract class WebviewProvider {
 				 <script type="text/javascript" nonce="${nonce}">
                     // Inject the provider type
                     window.WEBVIEW_PROVIDER_TYPE = ${JSON.stringify(this.providerType)};
-                    
-                    // Inject the client ID
-                    window.clineClientId = "${this.clientId}";
                 </script>
 				<script type="module" nonce="${nonce}" src="${scriptUri}"></script>
 			</body>
@@ -317,9 +407,6 @@ export abstract class WebviewProvider {
 					<script type="text/javascript" nonce="${nonce}">
 						// Inject the provider type
 						window.WEBVIEW_PROVIDER_TYPE = ${JSON.stringify(this.providerType)};
-						
-						// Inject the client ID
-						window.clineClientId = "${this.clientId}";
 					</script>
 					${reactRefresh}
 					<script type="module" src="${scriptUri}"></script>

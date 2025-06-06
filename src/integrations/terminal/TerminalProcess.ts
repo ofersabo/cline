@@ -73,34 +73,8 @@ export class TerminalProcess extends EventEmitter<TerminalProcessEvents> {
 			let isFirstChunk = true
 			let didOutputNonCommand = false
 			let didEmitEmptyLine = false
-			let receivedFirstChunk = false
-
-			// Set up a timeout to emit empty line if no output is received within 3 seconds
-			// This ensures the "proceed while running" button appears even for commands with no/delayed output
-			const firstChunkTimeout = setTimeout(() => {
-				if (!receivedFirstChunk && !didEmitEmptyLine) {
-					console.log(`[TerminalProcess] First chunk timeout fired - no output received within 3s for: "${command}"`)
-					this.emit("line", "") // empty line to show proceed button
-					didEmitEmptyLine = true
-
-					// Also emit a message indicating the command might be running without output
-					this.emit("line", "[Command is running but producing no output]")
-				}
-			}, 3000) // 3 second timeout
 
 			for await (let data of stream) {
-				// Clear the timeout since we received output
-				if (!receivedFirstChunk) {
-					clearTimeout(firstChunkTimeout)
-					receivedFirstChunk = true
-					console.log(`[TerminalProcess] First chunk received for command: "${command}"`)
-				}
-
-				// Log raw data length
-				console.log(`[TerminalProcess] Raw data chunk received: ${data.length} chars`)
-				if (!data || data.trim() === "") {
-					console.log(`[TerminalProcess] WARNING: Received empty or whitespace-only chunk`)
-				}
 				// 1. Process chunk and remove artifacts
 				if (isFirstChunk) {
 					/*

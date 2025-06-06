@@ -8,13 +8,23 @@ import { McpViewTab } from "./mcp"
 
 export interface WebviewMessage {
 	type:
+		| "apiConfiguration"
+		| "newTask"
+		| "condense"
+		| "reportBug"
 		| "requestVsCodeLmModels"
+		| "authStateChanged"
 		| "fetchMcpMarketplace"
 		| "searchCommits"
 		| "telemetrySetting"
+		| "updateSettings"
 		| "clearAllTaskHistory"
+		| "fetchUserCreditsData"
+		| "searchFiles"
 		| "grpc_request"
 		| "grpc_request_cancel"
+		| "toggleWorkflow"
+		| "executeQuickWin"
 
 	text?: string
 	disabled?: boolean
@@ -65,10 +75,11 @@ export interface WebviewMessage {
 	enabled?: boolean
 	filename?: string
 
+	payload?: { command: string; title: string }
+
 	offset?: number
 	shellIntegrationTimeout?: number
 	terminalReuseEnabled?: boolean
-	defaultTerminalProfile?: string
 }
 
 export type ClineAskResponse = "yesButtonClicked" | "noButtonClicked" | "messageResponse"

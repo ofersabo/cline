@@ -1,22 +1,13 @@
-import React, { useState, useEffect } from "react"
-import { VSCodeTextField, VSCodeCheckbox, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react"
+import React, { useState } from "react"
+import { VSCodeTextField, VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import TerminalOutputLineLimitSlider from "./TerminalOutputLineLimitSlider"
 import { StateServiceClient } from "../../services/grpc-client"
 import { Int64, Int64Request } from "@shared/proto/common"
 
 export const TerminalSettingsSection: React.FC = () => {
-	const {
-		shellIntegrationTimeout,
-		setShellIntegrationTimeout,
-		terminalReuseEnabled,
-		setTerminalReuseEnabled,
-		defaultTerminalProfile,
-		setDefaultTerminalProfile,
-		availableTerminalProfiles,
-		platform,
-	} = useExtensionState()
-
+	const { shellIntegrationTimeout, setShellIntegrationTimeout, terminalReuseEnabled, setTerminalReuseEnabled } =
+		useExtensionState()
 	const [inputValue, setInputValue] = useState((shellIntegrationTimeout / 1000).toString())
 	const [inputError, setInputError] = useState<string | null>(null)
 
@@ -59,21 +50,13 @@ export const TerminalSettingsSection: React.FC = () => {
 	const handleTerminalReuseChange = (event: Event) => {
 		const target = event.target as HTMLInputElement
 		const checked = target.checked
+
+		// Update local state
 		setTerminalReuseEnabled(checked)
-		StateServiceClient.updateTerminalReuseEnabled({ value: checked } as any).catch((error) => {
-			console.error("Failed to update terminal reuse enabled:", error)
-		})
-	}
 
-	// Use any to avoid type conflicts between Event and FormEvent
-	const handleDefaultTerminalProfileChange = (event: any) => {
-		const target = event.target as HTMLSelectElement
-		const profileId = target.value
-		// Only update the local state, let the Save button handle the backend update
-		setDefaultTerminalProfile(profileId)
+		// TODO: Send to extension using gRPC when the backend is ready
+		// For now, we'll just update the local state
 	}
-
-	const profilesToShow = availableTerminalProfiles
 
 	return (
 		<div id="terminal-settings-section" style={{ marginBottom: 20 }}>
@@ -134,7 +117,6 @@ export const TerminalSettingsSection: React.FC = () => {
 					this if you experience issues with task lockout after a terminal command.
 				</p>
 			</div>
-			<TerminalOutputLineLimitSlider />
 		</div>
 	)
 }

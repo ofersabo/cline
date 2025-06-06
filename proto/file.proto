@@ -55,12 +55,6 @@ service FileService {
 
   // Opens a task's conversation history file on disk
   rpc openTaskHistory(StringRequest) returns (Empty);
-  
-  // Toggles a workflow on or off
-  rpc toggleWorkflow(ToggleWorkflowRequest) returns (ClineRulesToggles);
-
-  // Subscribe to workspace file updates
-  rpc subscribeToWorkspaceUpdates(EmptyRequest) returns (stream StringArray);
 }
 
 // Response for refreshRules operation

@@ -18,7 +18,8 @@ class WorkspaceTracker {
 		)
 	}
 
-	constructor() {
+	constructor(private readonly postMessageToWebview: (message: ExtensionMessage) => Promise<void>) {
+		this.postMessageToWebview = postMessageToWebview
 		this.registerListeners()
 	}
 
@@ -94,9 +95,12 @@ class WorkspaceTracker {
 		if (!cwd) {
 			return
 		}
-		const filePaths = Array.from(new Set([...this.activeFiles, ...this.filePaths])).map((file) => {
-			const relativePath = path.relative(cwd, file).toPosix()
-			return file.endsWith("/") ? relativePath + "/" : relativePath
+		this.postMessageToWebview({
+			type: "workspaceUpdated",
+			filePaths: Array.from(new Set([...this.activeFiles, ...this.filePaths])).map((file) => {
+				const relativePath = path.relative(cwd, file).toPosix()
+				return file.endsWith("/") ? relativePath + "/" : relativePath
+			}),
 		})
 		await sendWorkspaceUpdateEvent(filePaths)
 	}

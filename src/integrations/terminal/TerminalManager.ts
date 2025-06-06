@@ -96,8 +96,6 @@ export class TerminalManager {
 	private disposables: vscode.Disposable[] = []
 	private shellIntegrationTimeout: number = 4000
 	private terminalReuseEnabled: boolean = true
-	private terminalOutputLineLimit: number = 500
-	private defaultTerminalProfile: string = "default"
 
 	constructor() {
 		let disposable: vscode.Disposable | undefined
@@ -258,7 +256,7 @@ export class TerminalManager {
 
 		// If no non-busy terminal in the current working dir exists and terminal reuse is enabled, try to find any non-busy terminal regardless of CWD
 		if (this.terminalReuseEnabled) {
-			const availableTerminal = terminals.find((t) => !t.busy && t.shellPath === expectedShellPath)
+			const availableTerminal = terminals.find((t) => !t.busy)
 			if (availableTerminal) {
 				// Set up promise and tracking for CWD change
 				const cwdPromise = new Promise<void>((resolve, reject) => {
@@ -267,13 +265,7 @@ export class TerminalManager {
 				})
 
 				// Navigate back to the desired directory
-				const cdProcess = this.runCommand(availableTerminal, `cd "${cwd}"`)
-
-				// Wait for the cd command to complete before proceeding
-				await cdProcess
-
-				// Add a small delay to ensure terminal is ready after cd
-				await new Promise((resolve) => setTimeout(resolve, 100))
+				await this.runCommand(availableTerminal, `cd "${cwd}"`)
 
 				// Either resolve immediately if CWD already updated or wait for event/timeout
 				if (this.isCwdMatchingExpected(availableTerminal)) {
@@ -344,118 +336,5 @@ export class TerminalManager {
 
 	setTerminalReuseEnabled(enabled: boolean): void {
 		this.terminalReuseEnabled = enabled
-	}
-
-	setTerminalOutputLineLimit(limit: number): void {
-		this.terminalOutputLineLimit = limit
-	}
-
-	public processOutput(outputLines: string[]): string {
-		if (outputLines.length > this.terminalOutputLineLimit) {
-			const halfLimit = Math.floor(this.terminalOutputLineLimit / 2)
-			const start = outputLines.slice(0, halfLimit)
-			const end = outputLines.slice(outputLines.length - halfLimit)
-			return `${start.join("\n")}\n... (output truncated) ...\n${end.join("\n")}`.trim()
-		}
-		return outputLines.join("\n").trim()
-	}
-
-	setDefaultTerminalProfile(profileId: string): { closedCount: number; busyTerminals: TerminalInfo[] } {
-		// Only handle terminal change if profile actually changed
-		if (this.defaultTerminalProfile === profileId) {
-			return { closedCount: 0, busyTerminals: [] }
-		}
-
-		const oldProfileId = this.defaultTerminalProfile
-		this.defaultTerminalProfile = profileId
-
-		// Get the shell path for the new profile
-		const newShellPath = profileId !== "default" ? getShellForProfile(profileId) : undefined
-
-		// Handle terminal management for the profile change
-		const result = this.handleTerminalProfileChange(newShellPath)
-
-		// Update lastActive for any remaining terminals
-		const allTerminals = TerminalRegistry.getAllTerminals()
-		allTerminals.forEach((terminal) => {
-			if (terminal.shellPath !== newShellPath) {
-				TerminalRegistry.updateTerminal(terminal.id, { lastActive: Date.now() })
-			}
-		})
-
-		return result
-	}
-
-	/**
-	 * Filters terminals based on a provided criteria function
-	 * @param filterFn Function that accepts TerminalInfo and returns boolean
-	 * @returns Array of terminals that match the criteria
-	 */
-	filterTerminals(filterFn: (terminal: TerminalInfo) => boolean): TerminalInfo[] {
-		const terminals = TerminalRegistry.getAllTerminals()
-		return terminals.filter(filterFn)
-	}
-
-	/**
-	 * Closes terminals that match the provided criteria
-	 * @param filterFn Function that accepts TerminalInfo and returns boolean for terminals to close
-	 * @param force If true, closes even busy terminals (with warning)
-	 * @returns Number of terminals closed
-	 */
-	closeTerminals(filterFn: (terminal: TerminalInfo) => boolean, force: boolean = false): number {
-		const terminalsToClose = this.filterTerminals(filterFn)
-		let closedCount = 0
-
-		for (const terminalInfo of terminalsToClose) {
-			// Skip busy terminals unless force is true
-			if (terminalInfo.busy && !force) {
-				continue
-			}
-
-			// Remove from our tracking
-			if (this.terminalIds.has(terminalInfo.id)) {
-				this.terminalIds.delete(terminalInfo.id)
-			}
-			this.processes.delete(terminalInfo.id)
-
-			// Dispose the actual terminal
-			terminalInfo.terminal.dispose()
-
-			// Remove from registry
-			TerminalRegistry.removeTerminal(terminalInfo.id)
-
-			closedCount++
-		}
-
-		return closedCount
-	}
-
-	/**
-	 * Handles terminal management when the terminal profile changes
-	 * @param newShellPath New shell path to use
-	 * @returns Object with information about closed terminals and remaining busy terminals
-	 */
-	handleTerminalProfileChange(newShellPath: string | undefined): {
-		closedCount: number
-		busyTerminals: TerminalInfo[]
-	} {
-		// Close non-busy terminals with different shell path
-		const closedCount = this.closeTerminals((terminal) => !terminal.busy && terminal.shellPath !== newShellPath, false)
-
-		// Get remaining busy terminals with different shell path
-		const busyTerminals = this.filterTerminals((terminal) => terminal.busy && terminal.shellPath !== newShellPath)
-
-		return {
-			closedCount,
-			busyTerminals,
-		}
-	}
-
-	/**
-	 * Forces closure of all terminals (including busy ones)
-	 * @returns Number of terminals closed
-	 */
-	closeAllTerminals(): number {
-		return this.closeTerminals(() => true, true)
 	}
 }

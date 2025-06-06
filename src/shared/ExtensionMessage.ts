@@ -14,15 +14,35 @@ import { UserInfo } from "./UserInfo"
 
 // webview will hold state
 export interface ExtensionMessage {
-	type: "action" | "state" | "selectedImages" | "mcpDownloadDetails" | "grpc_response" // New type for gRPC responses
+	type:
+		| "action"
+		| "state"
+		| "selectedImages"
+		| "ollamaModels"
+		| "lmStudioModels"
+		| "workspaceUpdated"
+		| "openAiModels"
+		| "requestyModels"
+		| "mcpServers"
+		| "relinquishControl"
+		| "mcpDownloadDetails"
+		| "commitSearchResults"
+		| "openGraphData"
+		| "didUpdateSettings"
+		| "userCreditsBalance"
+		| "userCreditsUsage"
+		| "userCreditsPayments"
+		| "fileSearchResults"
+		| "grpc_response" // New type for gRPC responses
 	text?: string
-	action?: "accountLogoutClicked"
+	action?: "didBecomeVisible" | "accountLogoutClicked" | "focusChatInput"
 	state?: ExtensionState
 	images?: string[]
 	files?: string[]
 	ollamaModels?: string[]
 	lmStudioModels?: string[]
 	vsCodeLmModels?: { vendor?: string; family?: string; version?: string; id?: string }[]
+	filePaths?: string[]
 	openAiModels?: string[]
 	mcpServers?: McpServer[]
 	customToken?: string
@@ -32,6 +52,9 @@ export interface ExtensionMessage {
 	commits?: GitCommit[]
 	url?: string
 	isImage?: boolean
+	userCreditsBalance?: BalanceResponse
+	userCreditsUsage?: UsageTransaction[]
+	userCreditsPayments?: PaymentTransaction[]
 	success?: boolean
 	endpoint?: string
 	isBundled?: boolean
@@ -78,8 +101,6 @@ export interface ExtensionState {
 	telemetrySetting: TelemetrySetting
 	shellIntegrationTimeout: number
 	terminalReuseEnabled?: boolean
-	terminalOutputLineLimit: number
-	defaultTerminalProfile?: string
 	uriScheme?: string
 	userInfo?: UserInfo
 	version: string

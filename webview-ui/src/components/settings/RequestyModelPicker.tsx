@@ -10,8 +10,7 @@ import { useExtensionState } from "../../context/ExtensionStateContext"
 import { ModelsServiceClient } from "../../services/grpc-client"
 import { CODE_BLOCK_BG_COLOR } from "../common/CodeBlock"
 import { highlight } from "../history/HistoryView"
-import { ModelInfoView } from "./ApiOptions"
-import { normalizeApiConfiguration } from "./utils/providerUtils"
+import { ModelInfoView, normalizeApiConfiguration } from "./ApiOptions"
 import ThinkingBudgetSlider from "./ThinkingBudgetSlider"
 
 export interface RequestyModelPickerProps {
@@ -45,16 +44,9 @@ const RequestyModelPicker: React.FC<RequestyModelPickerProps> = ({ isPopup }) =>
 	}, [apiConfiguration])
 
 	useMount(() => {
-		ModelsServiceClient.refreshRequestyModels(EmptyRequest.create({}))
-			.then((response) => {
-				setRequestyModels({
-					[requestyDefaultModelId]: requestyDefaultModelInfo,
-					...response.models,
-				})
-			})
-			.catch((err) => {
-				console.error("Failed to refresh Requesty models:", err)
-			})
+		ModelsServiceClient.refreshRequestyModels(EmptyRequest.create({})).catch((err) => {
+			console.error("Failed to refresh Requesty models:", err)
+		})
 	})
 
 	useEffect(() => {

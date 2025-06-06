@@ -41,9 +41,6 @@ const archive = archiver("zip", { zlib: { level: 3 } })
 output.on("close", () => {
 	console.log(`Created ${zipPath} (${(archive.pointer() / 1024 / 1024).toFixed(1)} MB)`)
 })
-archive.on("warning", (err) => {
-	console.warn(`Warning: ${err}`)
-})
 archive.on("error", (err) => {
 	throw err
 })

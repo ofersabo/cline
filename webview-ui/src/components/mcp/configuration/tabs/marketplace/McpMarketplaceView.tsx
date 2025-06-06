@@ -24,6 +24,8 @@ const McpMarketplaceView = () => {
 
 	const items = mcpMarketplaceCatalog?.items || []
 
+	const items = mcpMarketplaceCatalog?.items || []
+
 	const categories = useMemo(() => {
 		const uniqueCategories = new Set(items.map((item) => item.category))
 		return Array.from(uniqueCategories).sort()

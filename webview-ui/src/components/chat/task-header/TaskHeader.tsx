@@ -1,6 +1,6 @@
 import HeroTooltip from "@/components/common/HeroTooltip"
 import Thumbnails from "@/components/common/Thumbnails"
-import { normalizeApiConfiguration } from "@/components/settings/utils/providerUtils"
+import { normalizeApiConfiguration } from "@/components/settings/ApiOptions"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { FileServiceClient, TaskServiceClient, UiServiceClient } from "@/services/grpc-client"
 import { formatLargeNumber, formatSize } from "@/utils/format"
@@ -16,7 +16,7 @@ import DeleteTaskButton from "./buttons/DeleteTaskButton"
 import CopyTaskButton from "./buttons/CopyTaskButton"
 import OpenDiskTaskHistoryButton from "./buttons/OpenDiskTaskHistoryButton"
 
-const IS_DEV = process.env.IS_DEV
+const { IS_DEV } = process.env
 
 interface TaskHeaderProps {
 	task: ClineMessage
@@ -150,6 +150,8 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 		// This allows OpenAI-compatible providers to show cache tokens.
 		return (cacheReads !== undefined && cacheReads > 0) || (cacheWrites !== undefined && cacheWrites > 0)
 	}
+
+	console.log("IS_DEV", { IS_DEV, isItTrue: IS_DEV === '"true"' })
 
 	const ContextWindowComponent = (
 		<>

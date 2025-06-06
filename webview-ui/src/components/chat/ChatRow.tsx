@@ -1,8 +1,6 @@
 import { VSCodeBadge, VSCodeButton, VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react"
 import deepEqual from "fast-deep-equal"
 import React, { memo, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import styled from "styled-components"
-import { useEvent, useSize } from "react-use"
 
 import CreditLimitError from "@/components/chat/CreditLimitError"
 import { OptionsButtons } from "@/components/chat/OptionsButtons"
@@ -11,8 +9,6 @@ import { CheckmarkControl } from "@/components/common/CheckmarkControl"
 import CodeBlock, { CODE_BLOCK_BG_COLOR } from "@/components/common/CodeBlock"
 import MarkdownBlock from "@/components/common/MarkdownBlock"
 import SuccessButton from "@/components/common/SuccessButton"
-import { WithCopyButton } from "@/components/common/CopyButton"
-import Thumbnails from "@/components/common/Thumbnails"
 import McpResponseDisplay from "@/components/mcp/chat-display/McpResponseDisplay"
 import McpResourceRow from "@/components/mcp/configuration/tabs/installed/server-row/McpResourceRow"
 import McpToolRow from "@/components/mcp/configuration/tabs/installed/server-row/McpToolRow"
@@ -32,13 +28,75 @@ import {
 } from "@shared/ExtensionMessage"
 import { COMMAND_OUTPUT_STRING, COMMAND_REQ_APP_STRING } from "@shared/combineCommandSequences"
 import { Int64Request, StringRequest } from "@shared/proto/common"
-
-import CodeAccordian, { cleanPathPrefix } from "../common/CodeAccordian"
+import { useEvent, useSize } from "react-use"
+import styled from "styled-components"
 import { CheckpointControls } from "../common/CheckpointControls"
+import CodeAccordian, { cleanPathPrefix } from "../common/CodeAccordian"
 import NewTaskPreview from "./NewTaskPreview"
+import QuoteButton from "./QuoteButton"
 import ReportBugPreview from "./ReportBugPreview"
 import UserMessage from "./UserMessage"
-import QuoteButton from "./QuoteButton"
+
+interface CopyButtonProps {
+	textToCopy: string | undefined
+}
+
+const normalColor = "var(--vscode-foreground)"
+const errorColor = "var(--vscode-errorForeground)"
+const successColor = "var(--vscode-charts-green)"
+const cancelledColor = "var(--vscode-descriptionForeground)"
+
+const CopyButtonStyled = styled(VSCodeButton)`
+	position: absolute;
+	bottom: 2px;
+	right: 2px;
+	z-index: 1;
+	opacity: 0;
+`
+
+interface WithCopyButtonProps {
+	children: React.ReactNode
+	textToCopy?: string
+	style?: React.CSSProperties
+	ref?: React.Ref<HTMLDivElement>
+	onMouseUp?: (event: MouseEvent<HTMLDivElement>) => void
+}
+
+const StyledContainer = styled.div`
+	position: relative;
+
+	&:hover ${CopyButtonStyled} {
+		opacity: 1;
+	}
+`
+
+const WithCopyButton = React.forwardRef<HTMLDivElement, WithCopyButtonProps>(
+	({ children, textToCopy, style, onMouseUp, ...props }, ref) => {
+		const [copied, setCopied] = useState(false)
+
+		const handleCopy = () => {
+			if (!textToCopy) return
+
+			navigator.clipboard.writeText(textToCopy).then(() => {
+				setCopied(true)
+				setTimeout(() => {
+					setCopied(false)
+				}, 1500)
+			})
+		}
+
+		return (
+			<StyledContainer ref={ref} onMouseUp={onMouseUp} style={style} {...props}>
+				{children}
+				{textToCopy && (
+					<CopyButtonStyled appearance="icon" onClick={handleCopy} aria-label={copied ? "Copied" : "Copy"}>
+						<span className={`codicon codicon-${copied ? "check" : "copy"}`}></span>
+					</CopyButtonStyled>
+				)}
+			</StyledContainer>
+		)
+	},
+)
 
 const normalColor = "var(--vscode-foreground)"
 const errorColor = "var(--vscode-errorForeground)"
@@ -216,12 +274,17 @@ export const ChatRowContent = ({
 
 	const type = message.type === "ask" ? message.ask : message.say
 
-	// Use the onRelinquishControl hook instead of message event
-	useEffect(() => {
-		return onRelinquishControl(() => {
-			setSeeNewChangesDisabled(false)
-		})
-	}, [onRelinquishControl])
+	const handleMessage = useCallback((event: MessageEvent) => {
+		const message: ExtensionMessage = event.data
+		switch (message.type) {
+			case "relinquishControl": {
+				setSeeNewChangesDisabled(false)
+				break
+			}
+		}
+	}, [])
+
+	useEvent("message", handleMessage)
 
 	// --- Quote Button Logic ---
 	// MOVE handleQuoteClick INSIDE ChatRowContent

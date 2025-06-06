@@ -109,10 +109,3 @@ message AskResponseRequest {
   repeated string images = 4;
   repeated string files = 5;
 }
-
-// Request for executing a quick win task
-message ExecuteQuickWinRequest {
-  Metadata metadata = 1;
-  string command = 2;
-  string title = 3;
-}
