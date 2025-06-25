@@ -135,6 +135,14 @@ export class MistralHandler implements ApiHandler {
 	private getSubdirectoryNameFromMessages(messages: { role: string; content: any }[]): string {
 		if (!messages || messages.length === 0) return 'unknown'
 		const firstContent = typeof messages[0].content === 'string' ? messages[0].content : JSON.stringify(messages[0].content)
-		return firstContent.slice(0, 32).replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown'
+		// Try to extract content inside <task>...</task>
+		const taskMatch = firstContent.match(/<task>\s*([\s\S]*?)\s*<\/task>/);
+		let name = '';
+		if (taskMatch && taskMatch[1]) {
+			name = taskMatch[1].trim().replace(/\s+/g, '_').replace(/\\n/g, '');
+		} else {
+			name = firstContent.slice(0, 32).replace(/[^a-zA-Z0-9_-]/g, '_');
+		}
+		return name || 'unknown';
 	}
 }

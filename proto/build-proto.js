@@ -64,12 +64,6 @@ const hostServiceDirs = Object.keys(hostServiceNameMap).map((serviceKey) => path
 
 // List of host gRPC services (IDE API bridge)
 // These services are implemented in the IDE extension and called by the standalone Cline Core
-const hostServiceNameMap = {
-	uri: "host.UriService",
-	watch: "host.WatchService",
-	// Add new host services here
-}
-const hostServiceDirs = Object.keys(hostServiceNameMap).map((serviceKey) => path.join(ROOT_DIR, "hosts", "vscode", serviceKey))
 
 async function main() {
 	console.log(chalk.bold.blue("Starting Protocol Buffer code generation..."))

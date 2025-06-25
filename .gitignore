@@ -37,3 +37,4 @@ src/standalone/services/host-grpc-client.ts
 hosts/vscode/*/methods.ts
 hosts/vscode/*/index.ts
 hosts/vscode/host-grpc-service-config.ts
+.aider*

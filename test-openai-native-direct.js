@@ -17,15 +17,11 @@ function getSubdirectoryNameFromMessages(messages) {
   if (taskMatch && taskMatch[1]) {
     content = taskMatch[1];
   }
-  
-  // Clean up the content to make a valid directory name
+
+  // Remove all spaces and replace them with underscores
   return content
     .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '-') // Replace spaces with hyphens
-    .replace(/[^a-z0-9-]/g, '') // Remove special characters
-    .replace(/-+/g, '-') // Replace multiple hyphens with a single one
-    .substring(0, 50) // Limit length
+    .replace(/\s+/g, '_') // Replace spaces (including newlines) with underscores
     || 'unknown-query';
 }
 
