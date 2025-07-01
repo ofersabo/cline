@@ -5,6 +5,9 @@ import { ApiHandler } from "../"
 import { ApiHandlerOptions, mistralDefaultModelId, MistralModelId, mistralModels, ModelInfo } from "@shared/api"
 import { convertToMistralMessages } from "../transform/mistral-format"
 import { ApiStream } from "../transform/stream"
+import * as fs from "fs"
+import * as path from "path"
+import { writeModelLog } from "./utils"
 
 export class MistralHandler implements ApiHandler {
 	private options: ApiHandlerOptions
@@ -19,6 +22,13 @@ export class MistralHandler implements ApiHandler {
 
 	@withRetry()
 	async *createMessage(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]): ApiStream {
+		// Prepare messages for logging
+		const mistralMessages = convertToMistralMessages(messages)
+		const allMessages = [{ role: "system", content: systemPrompt }, ...mistralMessages]
+
+		// Write log using utility function
+		writeModelLog(messages, allMessages, "mistral")
+
 		const stream = await this.client.chat
 			.stream({
 				model: this.getModel().id,
