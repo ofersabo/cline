@@ -11,12 +11,16 @@ export function writeModelLog(messages: any[], allMessages: any[], modelName: st
 	// Sanitize directory name from first message content
 	let dirName = "unknown"
 	if (messages && messages.length > 0 && messages[0].content[0].text) {
-		dirName =
-			messages[0].content[0].text
-				.replace(/[^a-zA-Z0-9-_]/g, "_")
-				.replaceAll("task", "")
-				.replace(/^_+|_+$/g, "")
-				.substring(0, 1024) || "unknown"
+		const text = messages[0].content[0].text
+		// Extract content between <task> and </task> tags
+		const taskMatch = text.match(/<task>(.*?)<\/task>/s)
+		if (taskMatch && taskMatch[1]) {
+			dirName =
+				taskMatch[1]
+					.trim()
+					.replace(/\s+/g, "_") // Replace spaces with underscores
+					.substring(0, 100) || "unknown" // Trim to 100 characters
+		}
 	}
 	const logsBase = "/Users/ofersabo/code/cline/logs"
 	const logDir = path.join(logsBase, dirName)
