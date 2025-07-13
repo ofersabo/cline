@@ -4,6 +4,7 @@ import { withRetry } from "../retry"
 import { anthropicDefaultModelId, AnthropicModelId, anthropicModels, ApiHandlerOptions, ModelInfo } from "@shared/api"
 import { ApiHandler } from "../index"
 import { ApiStream } from "../transform/stream"
+import { writeModelLog } from "./utils"
 
 export class AnthropicHandler implements ApiHandler {
 	private options: ApiHandlerOptions
@@ -19,6 +20,12 @@ export class AnthropicHandler implements ApiHandler {
 
 	@withRetry()
 	async *createMessage(systemPrompt: string, messages: Anthropic.Messages.MessageParam[]): ApiStream {
+		// Prepare messages for logging
+		const allMessages = [{ role: "system", content: systemPrompt }, ...messages]
+
+		// Write log using utility function
+		writeModelLog(messages, allMessages, "anthropic")
+
 		const model = this.getModel()
 		let stream: AnthropicStream<Anthropic.RawMessageStreamEvent>
 		const modelId = model.id
