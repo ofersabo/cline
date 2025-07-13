@@ -6,16 +6,36 @@ import { ApiHandler } from "../index"
 import { ApiStream } from "../transform/stream"
 import { writeModelLog } from "./utils"
 
+interface AnthropicHandlerOptions {
+	apiKey?: string
+	anthropicBaseUrl?: string
+	apiModelId?: string
+	thinkingBudgetTokens?: number
+}
+
 export class AnthropicHandler implements ApiHandler {
 	private options: ApiHandlerOptions
-	private client: Anthropic
+	private client: Anthropic | undefined
 
-	constructor(options: ApiHandlerOptions) {
+	constructor(options: AnthropicHandlerOptions) {
 		this.options = options
-		this.client = new Anthropic({
-			apiKey: this.options.apiKey,
-			baseURL: this.options.anthropicBaseUrl || undefined,
-		})
+	}
+
+	private ensureClient(): Anthropic {
+		if (!this.client) {
+			if (!this.options.apiKey) {
+				throw new Error("Anthropic API key is required")
+			}
+			try {
+				this.client = new Anthropic({
+					apiKey: this.options.apiKey,
+					baseURL: this.options.anthropicBaseUrl || undefined,
+				})
+			} catch (error) {
+				throw new Error(`Error creating Anthropic client: ${error.message}`)
+			}
+		}
+		return this.client
 	}
 
 	@withRetry()
@@ -25,6 +45,7 @@ export class AnthropicHandler implements ApiHandler {
 
 		// Write log using utility function
 		writeModelLog(messages, allMessages, "anthropic")
+		const client = this.ensureClient()
 
 		const model = this.getModel()
 		let stream: AnthropicStream<Anthropic.RawMessageStreamEvent>
@@ -51,7 +72,7 @@ export class AnthropicHandler implements ApiHandler {
 				)
 				const lastUserMsgIndex = userMsgIndices[userMsgIndices.length - 1] ?? -1
 				const secondLastMsgUserIndex = userMsgIndices[userMsgIndices.length - 2] ?? -1
-				stream = await this.client.messages.create(
+				stream = await client.messages.create(
 					{
 						model: modelId,
 						thinking: reasoningOn ? { type: "enabled", budget_tokens: budget_tokens } : undefined,
@@ -125,7 +146,7 @@ export class AnthropicHandler implements ApiHandler {
 				break
 			}
 			default: {
-				stream = await this.client.messages.create({
+				stream = await client.messages.create({
 					model: modelId,
 					max_tokens: model.info.maxTokens || 8192,
 					temperature: 0,

@@ -2,22 +2,40 @@ import { Anthropic } from "@anthropic-ai/sdk"
 import { Mistral } from "@mistralai/mistralai"
 import { withRetry } from "../retry"
 import { ApiHandler } from "../"
-import { ApiHandlerOptions, mistralDefaultModelId, MistralModelId, mistralModels, ModelInfo } from "@shared/api"
+import { mistralDefaultModelId, MistralModelId, mistralModels, ModelInfo } from "@shared/api"
 import { convertToMistralMessages } from "../transform/mistral-format"
 import { ApiStream } from "../transform/stream"
 import * as fs from "fs"
 import * as path from "path"
 import { writeModelLog } from "./utils"
 
-export class MistralHandler implements ApiHandler {
-	private options: ApiHandlerOptions
-	private client: Mistral
+interface MistralHandlerOptions {
+	mistralApiKey?: string
+	apiModelId?: string
+}
 
-	constructor(options: ApiHandlerOptions) {
+export class MistralHandler implements ApiHandler {
+	private options: MistralHandlerOptions
+	private client: Mistral | undefined
+
+	constructor(options: MistralHandlerOptions) {
 		this.options = options
-		this.client = new Mistral({
-			apiKey: this.options.mistralApiKey,
-		})
+	}
+
+	private ensureClient(): Mistral {
+		if (!this.client) {
+			if (!this.options.mistralApiKey) {
+				throw new Error("Mistral API key is required")
+			}
+			try {
+				this.client = new Mistral({
+					apiKey: this.options.mistralApiKey,
+				})
+			} catch (error) {
+				throw new Error(`Error creating Mistral client: ${error.message}`)
+			}
+		}
+		return this.client
 	}
 
 	@withRetry()
@@ -29,7 +47,8 @@ export class MistralHandler implements ApiHandler {
 		// Write log using utility function
 		writeModelLog(messages, allMessages, "mistral")
 
-		const stream = await this.client.chat
+		const client = this.ensureClient()
+		const stream = await client.chat
 			.stream({
 				model: this.getModel().id,
 				// max_completion_tokens: this.getModel().info.maxTokens,
