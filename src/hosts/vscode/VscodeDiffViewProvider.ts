@@ -1,8 +1,8 @@
 import { arePathsEqual } from "@/utils/path"
 import * as path from "path"
 import * as vscode from "vscode"
-import { DecorationController } from "./DecorationController"
-import { DIFF_VIEW_URI_SCHEME, DiffViewProvider } from "./DiffViewProvider"
+import { DecorationController } from "@integrations/editor/DecorationController"
+import { DIFF_VIEW_URI_SCHEME, DiffViewProvider } from "@integrations/editor/DiffViewProvider"
 
 export class VscodeDiffViewProvider extends DiffViewProvider {
 	override async openDiffEditor(): Promise<void> {
@@ -76,5 +76,25 @@ export class VscodeDiffViewProvider extends DiffViewProvider {
 		this.activeLineController = new DecorationController("activeLine", this.activeDiffEditor)
 		// Apply faded overlay to all lines initially
 		this.fadedOverlayController.addLines(0, this.activeDiffEditor.document.lineCount)
+	}
+
+	override async replaceText(
+		content: string,
+		rangeToReplace: { startLine: number; endLine: number },
+		currentLine: number,
+	): Promise<void> {
+		const document = this.activeDiffEditor?.document
+		if (!document) {
+			throw new Error("User closed text editor, unable to edit file...")
+		}
+
+		const edit = new vscode.WorkspaceEdit()
+		const range = new vscode.Range(rangeToReplace.startLine, 0, rangeToReplace.endLine, 0)
+		edit.replace(document.uri, range, content)
+		await vscode.workspace.applyEdit(edit)
+
+		// Update decorations for the entire changed section
+		this.activeLineController?.setActiveLine(currentLine)
+		this.fadedOverlayController?.updateOverlayAfterLine(currentLine, document.lineCount)
 	}
 }

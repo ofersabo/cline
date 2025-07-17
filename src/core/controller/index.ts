@@ -36,6 +36,7 @@ import { sendMcpMarketplaceCatalogEvent } from "./mcp/subscribeToMcpMarketplaceC
 import { AuthService } from "@/services/auth/AuthService"
 import { ShowMessageRequest, ShowMessageType } from "@/shared/proto/host/window"
 import { getHostBridgeProvider } from "@/hosts/host-providers"
+import { clineEnvConfig } from "@/config"
 
 /*
 https://github.com/microsoft/vscode-webview-ui-toolkit-samples/blob/main/default/weather-webview/src/providers/WeatherViewProvider.ts
@@ -461,11 +462,6 @@ export class Controller {
 		}
 	}
 
-	// Auth
-	public async validateAuthState(state: string | null): Promise<boolean> {
-		return state === this.authService.authNonce
-	}
-
 	async handleAuthCallback(customToken: string, provider: string | null = null) {
 		try {
 			await this.authService.handleAuthCallback(customToken, provider ? provider : "google")
@@ -503,7 +499,7 @@ export class Controller {
 	// MCP Marketplace
 	private async fetchMcpMarketplaceFromApi(silent: boolean = false): Promise<McpMarketplaceCatalog | undefined> {
 		try {
-			const response = await axios.get("https://api.cline.bot/v1/mcp/marketplace", {
+			const response = await axios.get(`${clineEnvConfig.mcpBaseUrl}/marketplace`, {
 				headers: {
 					"Content-Type": "application/json",
 				},
@@ -542,7 +538,7 @@ export class Controller {
 
 	private async fetchMcpMarketplaceFromApiRPC(silent: boolean = false): Promise<McpMarketplaceCatalog | undefined> {
 		try {
-			const response = await axios.get("https://api.cline.bot/v1/mcp/marketplace", {
+			const response = await axios.get(`${clineEnvConfig.mcpBaseUrl}/marketplace`, {
 				headers: {
 					"Content-Type": "application/json",
 					"User-Agent": "cline-vscode-extension",
@@ -834,7 +830,7 @@ export class Controller {
 			chatSettings: storedChatSettings,
 			userInfo,
 			mcpMarketplaceEnabled,
-			mcpRichDisplayEnabled,
+			mcpDisplayMode,
 			telemetrySetting,
 			planActSeparateModelsSetting,
 			enableCheckpointsSetting,
@@ -887,7 +883,7 @@ export class Controller {
 			chatSettings,
 			userInfo,
 			mcpMarketplaceEnabled,
-			mcpRichDisplayEnabled,
+			mcpDisplayMode,
 			telemetrySetting,
 			planActSeparateModelsSetting,
 			enableCheckpointsSetting: enableCheckpointsSetting ?? true,
@@ -910,7 +906,6 @@ export class Controller {
 
 	async clearTask() {
 		if (this.task) {
-			await telemetryService.sendCollectedEvents(this.task.taskId)
 		}
 		await this.task?.abortTask()
 		this.task = undefined // removes reference to it, so once promises end it will be garbage collected
