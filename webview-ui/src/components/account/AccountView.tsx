@@ -1,23 +1,22 @@
+import { useClineAuth } from "@/context/ClineAuthContext"
+import { useExtensionState } from "@/context/ExtensionStateContext"
+import { AccountServiceClient } from "@/services/grpc-client"
+import { formatCreditsBalance } from "@/utils/format"
+import { UsageTransaction as ClineAccountUsageTransaction, PaymentTransaction } from "@shared/ClineAccount"
+import { UsageTransaction as ProtoUsageTransaction, UserOrganization, UserOrganizationUpdateRequest } from "@shared/proto/account"
+import { EmptyRequest } from "@shared/proto/common"
 import {
 	VSCodeButton,
 	VSCodeDivider,
-	VSCodeLink,
 	VSCodeDropdown,
+	VSCodeLink,
 	VSCodeOption,
 	VSCodeTag,
 } from "@vscode/webview-ui-toolkit/react"
-import { memo, useCallback, useEffect, useState, useRef } from "react"
-import { useClineAuth } from "@/context/ClineAuthContext"
-import VSCodeButtonLink from "../common/VSCodeButtonLink"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ClineLogoWhite from "../../assets/ClineLogoWhite"
 import CreditsHistoryTable from "./CreditsHistoryTable"
-import { UsageTransaction, PaymentTransaction } from "@shared/ClineAccount"
-import { useExtensionState } from "@/context/ExtensionStateContext"
-import { AccountServiceClient } from "@/services/grpc-client"
-import { EmptyRequest } from "@shared/proto/common"
-import { UserOrganization, UserOrganizationUpdateRequest } from "@shared/proto/account"
-import { formatCreditsBalance } from "@/utils/format"
-import { clineEnvConfig } from "@/config"
+import VSCodeButtonLink from "../common/VSCodeButtonLink"
 
 // Custom hook for animated credit display with styled decimals
 const useAnimatedCredits = (targetValue: number, duration: number = 660) => {
@@ -35,7 +34,7 @@ const useAnimatedCredits = (targetValue: number, duration: number = 660) => {
 			const progress = Math.min(elapsed / duration, 1)
 
 			// Easing function (ease-out)
-			const easedProgress = 1 - Math.pow(1 - progress, 3)
+			const easedProgress = 1 - (1 - progress) ** 3
 			const newValue = easedProgress * targetValue
 
 			setCurrentValue(newValue)
@@ -112,31 +111,42 @@ const getMainRole = (roles?: string[]) => {
 	return "Member"
 }
 
+const CLINE_APP_URL = "https://app.cline.bot"
+
 export const ClineAccountView = () => {
 	const { clineUser, handleSignIn, handleSignOut } = useClineAuth()
 	const { userInfo, apiConfiguration } = useExtensionState()
 
-	let user = apiConfiguration?.clineAccountId ? clineUser || userInfo : undefined
+	const user = apiConfiguration?.clineAccountId ? clineUser || userInfo : undefined
 
 	const [balance, setBalance] = useState<number | null>(null)
 	const [userOrganizations, setUserOrganizations] = useState<UserOrganization[]>([])
 	const [activeOrganization, setActiveOrganization] = useState<UserOrganization | null>(null)
 	const [isLoading, setIsLoading] = useState(true)
 	const [isSwitchingOrg, setIsSwitchingOrg] = useState(false)
-	const [usageData, setUsageData] = useState<UsageTransaction[]>([])
+	const [usageData, setUsageData] = useState<ClineAccountUsageTransaction[]>([])
 	const [paymentsData, setPaymentsData] = useState<PaymentTransaction[]>([])
 	const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
-	const dashboardAddCreditsURL = activeOrganization
-		? `${clineEnvConfig.appBaseUrl}/dashboard/organization?tab=credits&redirect=true`
-		: `${clineEnvConfig.appBaseUrl}/dashboard/account?tab=credits&redirect=true`
+	const clineUris = useMemo(() => {
+		const base = new URL(clineUser?.appBaseUrl || CLINE_APP_URL)
+		const dashboard = new URL("dashboard", base)
+		const credits = new URL(activeOrganization ? "/organization" : "/account", dashboard)
+		credits.searchParams.set("tab", "credits")
+		credits.searchParams.set("redirect", "true")
+
+		return {
+			dashboard,
+			credits,
+		}
+	}, [clineUser?.appBaseUrl, activeOrganization])
 
 	async function getUserCredits() {
 		setIsLoading(true)
 		try {
 			const response = await AccountServiceClient.getUserCredits(EmptyRequest.create())
 			setBalance(response.balance?.currentBalance ?? null)
-			setUsageData(response.usageTransactions)
+			setUsageData(convertProtoUsageTransactions(response.usageTransactions))
 			setPaymentsData(response.paymentTransactions)
 		} catch (error) {
 			console.error("Failed to fetch user credits data:", error)
@@ -291,10 +301,7 @@ export const ClineAccountView = () => {
 
 					<div className="w-full flex gap-2 flex-col min-[225px]:flex-row">
 						<div className="w-full min-[225px]:w-1/2">
-							<VSCodeButtonLink
-								href={`${clineEnvConfig.appBaseUrl}/dashboard`}
-								appearance="primary"
-								className="w-full">
+							<VSCodeButtonLink href={clineUris.dashboard.href} appearance="primary" className="w-full">
 								Dashboard
 							</VSCodeButtonLink>
 						</div>
@@ -332,7 +339,7 @@ export const ClineAccountView = () => {
 							</div>
 
 							<div className="w-full">
-								<VSCodeButtonLink href={dashboardAddCreditsURL} className="w-full">
+								<VSCodeButtonLink href={clineUris.credits.href} className="w-full">
 									Add Credits
 								</VSCodeButtonLink>
 							</div>
@@ -371,6 +378,29 @@ export const ClineAccountView = () => {
 			)}
 		</div>
 	)
+}
+
+/**
+ * Converts a protobuf UsageTransaction to a ClineAccount UsageTransaction
+ * by adding the missing id and metadata fields
+ */
+function convertProtoUsageTransaction(protoTransaction: ProtoUsageTransaction): ClineAccountUsageTransaction {
+	return {
+		...protoTransaction,
+		id: protoTransaction.generationId, // Use generationId as the id
+		metadata: {
+			additionalProp1: "",
+			additionalProp2: "",
+			additionalProp3: "",
+		},
+	}
+}
+
+/**
+ * Converts an array of protobuf UsageTransactions to ClineAccount UsageTransactions
+ */
+function convertProtoUsageTransactions(protoTransactions: ProtoUsageTransaction[]): ClineAccountUsageTransaction[] {
+	return protoTransactions.map(convertProtoUsageTransaction)
 }
 
 export default memo(AccountView)
